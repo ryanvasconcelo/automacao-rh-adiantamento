@@ -1,6 +1,7 @@
 import os  # Biblioteca padrão do Python para interagir com o sistema operacional.
 import pyodbc  # Nosso "tradutor" para o banco de dados.
 from dotenv import load_dotenv  # O "guardião" que carrega nossas variáveis do .env.
+from config.logging_config import log
 
 # Esta linha é crucial. Ela procura por um arquivo .env e o carrega.
 load_dotenv()

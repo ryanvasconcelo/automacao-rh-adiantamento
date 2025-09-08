@@ -1,0 +1,43 @@
+2025-09-08 09:18:08 | INFO     | __main__:run:14 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 09:18:08 | INFO     | src.data_extraction:fetch_employee_base_data:10 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 09:18:08 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 09:18:08 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-08 09:18:08 | INFO     | src.data_extraction:fetch_employee_base_data:47 - Dados extraídos com sucesso!
+2025-09-08 09:18:08 | INFO     | src.data_extraction:fetch_employee_base_data:58 - Conexão com o banco de dados fechada.
+2025-09-08 09:18:08 | INFO     | __main__:run:21 - Encontrados 281 funcionários ativos na base.
+2025-09-08 09:18:08 | INFO     | src.data_extraction:fetch_employee_leaves:65 - Buscando dados de afastamentos (licenças)...
+2025-09-08 09:18:08 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 09:18:08 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-08 09:18:08 | INFO     | __main__:run:25 - Encontrados 30 registros de afastamento para o período.
+2025-09-08 09:18:08 | INFO     | src.business_logic:aplicar_regras_elegibilidade_jr:70 - Análise de elegibilidade concluída.
+2025-09-08 09:18:08 | INFO     | __main__:run:35 - --- RELATÓRIO DE ANÁLISE DE ELEGIBILIDADE ---
+2025-09-08 09:18:08 | INFO     | __main__:run:36 - Total de funcionários analisados: 281
+2025-09-08 09:18:08 | INFO     | __main__:run:37 - Funcionários Elegíveis: 259
+2025-09-08 09:18:08 | INFO     | __main__:run:38 - Funcionários Inelegíveis: 22
+2025-09-08 09:18:08 | INFO     | __main__:run:39 - Funcionários Requerendo Correção Cadastral: 0
+2025-09-08 09:18:08 | WARNING  | __main__:run:44 - --- Detalhamento de Funcionários Inelegíveis ---
+2025-09-08 09:18:08 | WARNING  | __main__:run:46 - 
+    Matricula                                   Nome AdmissaoData FlagAdiantamento  DiasEfetivos                                                                                                                                                                                    Observacoes
+10     012712         SOCORRO DANIELE AVELINO COELHO   2025-09-08                S            13  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+24     012283                 ARIVANIA ROCHA CARDOSO   2015-05-06                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+39     011395                   ELIENY LIMA PINHEIRO   2018-09-20                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+60     012055                 JONATAS DA SILVA COSTA   2021-08-18                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+69     012210     CRISTIANE BERNARDINA DO NASCIMENTO   2013-10-18                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+71     011886                     MAX MOURA DA SILVA   2021-03-10                S             7  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+72     011922                KEICIANE  NUNES DA CRUZ   2021-05-14                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+77     000545          CATARINA DOS SANTOS DE OLANDA   2014-05-15                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+87     012360              SAMARA FERNANDES DA SILVA   2023-02-22                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+111    012710  NATANAEL FELIPE DO NASCIMENTO ALENCAR   2025-09-08                S            13  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+112    012711                  YAN FERREIRA DA SILVA   2025-09-08                S            13  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+113    012713              RHUAN CARLOS MORAIS COSTA   2025-09-08                S            13  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+114    012714                 HENRIQUE OLIVEIRA DIAS   2025-09-08                S            13  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+160    012250              ANA FRANCE FARIAS BEZERRA   2022-03-25                S             2  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+161    012346                      NILSON SILVA MOTA   2001-11-01                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+171    011216      GABRIEL DOS ANJOS FAVACHO E SILVA   2017-08-23                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+175    000145           FRANCILANE DE OLIVEIRA SILVA   2011-06-01                S            14  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+217    011421     SUELLEN CRISTINA FERNANDES DELMONT   2018-10-08                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+219    001116          FRANCISCA NASCIMENTO DA SILVA   2016-12-10                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+269    011777           ROSINEIDE DE SOUSA RODRIGUES   2020-07-01                N            20                                                                                                                                                            Flag de adiantamento desabilitado; 
+276    011431                   FABIANA ARAUJO GOMES   2018-10-17                S            11  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+278    011587                     ALEF DE SOUZA LIMA   2019-06-05                S             0  Dias efetivos (0      20\n1      20\n2      20\n3      20\n4      20\n       ..\n276    11\n277    20\n278     0\n279    20\n280    20\nName: DiasEfetivos, Length: 281, dtype: int64) < 15; 
+2025-09-08 09:18:08 | SUCCESS  | __main__:run:52 - --- PROCESSO CONCLUÍDO ---

@@ -2,7 +2,7 @@
 
 from src.data_extraction import fetch_employee_base_data, fetch_employee_leaves
 from src.business_logic import aplicar_regras_elegibilidade_jr
-from config.logging_config import log  # Importamos nosso logger!
+from config.logging_config import log
 import pandas as pd
 
 pd.set_option('display.max_columns', None)

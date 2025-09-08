@@ -1,5 +1,6 @@
 import pandas as pd
 from .database import get_db_connection
+from config.logging_config import log
 
 # A função agora recebe 'emp_codigo' como um argumento dinâmico
 def fetch_employee_base_data(emp_codigo: str):

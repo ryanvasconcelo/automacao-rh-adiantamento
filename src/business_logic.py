@@ -2,6 +2,7 @@
 
 import pandas as pd
 from datetime import date, timedelta
+from config.logging_config import log
 
 def aplicar_regras_elegibilidade_jr(df: pd.DataFrame) -> pd.DataFrame:
     log.info
