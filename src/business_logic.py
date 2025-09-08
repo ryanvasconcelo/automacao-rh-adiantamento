@@ -5,8 +5,7 @@ from datetime import date, timedelta
 from config.logging_config import log
 
 def aplicar_regras_elegibilidade_jr(df: pd.DataFrame) -> pd.DataFrame:
-    log.info
-    ("Analisando elegibilidade dos funcionários...")
+    log.info("Analisando elegibilidade dos funcionários...")
     
     df['AdmissaoData'] = pd.to_datetime(df['AdmissaoData'], errors='coerce')
 
@@ -21,16 +20,14 @@ def aplicar_regras_elegibilidade_jr(df: pd.DataFrame) -> pd.DataFrame:
     df.loc[flag_desabilitado, 'Status'] = 'Inelegível'
     df.loc[flag_desabilitado, 'Observacoes'] += 'Flag de adiantamento desabilitado; '
 
-    # Regra 2 e 3 combinadas: Dias Trabalhados e Afastamentos
+      # Regra 2 e 3 combinadas: Dias Trabalhados e Afastamentos
     hoje = date.today()
     inicio_periodo = date(hoje.year, hoje.month, 1)
     fim_periodo = date(hoje.year, hoje.month, 20)
 
-    # Função para calcular dias efetivos
     def calcular_dias_efetivos(row):
-        # Ignora licença maternidade ('LM') desta regra
         if row['CodigoTipoLicenca'] == 'LM':
-            return 20 # Considera o período cheio
+            return 20 
 
         dias_potenciais = 0
         if pd.notna(row['AdmissaoData']):
@@ -41,7 +38,6 @@ def aplicar_regras_elegibilidade_jr(df: pd.DataFrame) -> pd.DataFrame:
         
         dias_afastado = 0
         if pd.notna(row['DataInicioAfastamento']):
-            # Calcula a sobreposição do afastamento com o período de 1-20
             inicio_afast = max(row['DataInicioAfastamento'].date(), inicio_periodo)
             fim_afast = min(row['DataFimAfastamento'].date(), fim_periodo)
             if fim_afast >= inicio_afast:
@@ -50,19 +46,23 @@ def aplicar_regras_elegibilidade_jr(df: pd.DataFrame) -> pd.DataFrame:
         return dias_potenciais - dias_afastado
 
     df['DiasEfetivos'] = df.apply(calcular_dias_efetivos, axis=1)
-
-    # Aplica a regra dos 15 dias
-    dias_insuficientes = df['DiasEfetivos'] < 15
-    df.loc[dias_insuficientes, 'Status'] = 'Inelegível'
-    df.loc[dias_insuficientes, 'Observacoes'] += f"Dias efetivos ({df['DiasEfetivos'].astype(int)}) < 15; "
+    
+    # --- CORREÇÃO DA MENSAGEM DE LOG ---
+    # Primeiro, identificamos quem é inelegível por esta regra.
+    dias_insuficientes_mask = df['DiasEfetivos'] < 15
+    
+    # Agora, para cada um deles, criamos a mensagem de erro personalizada.
+    # O .apply() garante que usamos o valor da 'DiasEfetivos' de cada linha.
+    df.loc[dias_insuficientes_mask, 'Observacoes'] += df[dias_insuficientes_mask].apply(
+        lambda row: f"Dias efetivos ({row['DiasEfetivos']}) < 15; ", axis=1
+    )
+    df.loc[dias_insuficientes_mask, 'Status'] = 'Inelegível'
     
     # Regra 4 (NOVA): Auditoria de Flag - Identificar quem deveria receber mas está com flag 'N'
     # Condições: A pessoa passaria em todas as regras (Observacoes está vazia), mas o flag original era 'N'
     necessita_correcao = (df['Observacoes'] == '') & (df['FlagAdiantamento'] == 'N')
     df.loc[necessita_correcao, 'Status'] = 'Requer Correção'
     df.loc[necessita_correcao, 'Observacoes'] = 'Este funcionário é elegível mas está sem o flag de adiantamento no sistema.'
-
-    # --- FIM DAS REGRAS ---
 
     # A coluna 'Elegivel' agora é baseada no Status final
     df['Elegivel'] = df['Status'] == 'Elegível'
