@@ -6,7 +6,7 @@ def fetch_employee_base_data(emp_codigo: str):
     """
     Busca os dados base dos funcionários ativos de uma empresa específica.
     """
-    print(f"Iniciando a busca de dados para a empresa: {emp_codigo}")
+    log.info(f"Iniciando a busca de dados para a empresa: {emp_codigo}")
     
     # A query agora usa o argumento 'emp_codigo' para filtrar a empresa correta.
     query = f"""
@@ -43,25 +43,25 @@ def fetch_employee_base_data(emp_codigo: str):
         connection = get_db_connection()
         if connection:
             employees_df = pd.read_sql(query, connection)
-            print("Dados extraídos com sucesso!")
+            log.info("Dados extraídos com sucesso!")
             return employees_df
         else:
-            print("Não foi possível extrair dados, a conexão com o banco falhou.")
+            log.info("Não foi possível extrair dados, a conexão com o banco falhou.")
             return None
     except Exception as e:
-        print(f"Ocorreu um erro ao executar a consulta: {e}")
+        log.info(f"Ocorreu um erro ao executar a consulta: {e}")
         return None
     finally:
         if connection:
             connection.close()
-            print("Conexão com o banco de dados fechada.")
+            log.info("Conexão com o banco de dados fechada.")
 
 # busca a lista de afastamentos (licenças) do mês corrente para os funcionários fornecidos
 def fetch_employee_leaves(emp_codigo: str, employee_ids: list):
     """
     Busca os afastamentos (licenças) do mês corrente para uma lista específica de funcionários.
     """
-    print("Buscando dados de afastamentos (licenças)...")
+    log.info("Buscando dados de afastamentos (licenças)...")
     if not employee_ids:
         return pd.DataFrame() # Retorna um DataFrame vazio se não houver funcionários para buscar
 
@@ -94,7 +94,7 @@ def fetch_employee_leaves(emp_codigo: str, employee_ids: list):
             return leaves_df
         return pd.DataFrame() # Retorna DF vazio em caso de falha na conexão
     except Exception as e:
-        print(f"Ocorreu um erro ao buscar afastamentos: {e}")
+        log.info(f"Ocorreu um erro ao buscar afastamentos: {e}")
         return pd.DataFrame() # Retorna DF vazio em caso de erro
     finally:
         if connection:
@@ -108,4 +108,4 @@ if __name__ == "__main__":
     df = fetch_employee_base_data(emp_codigo=CODIGO_EMPRESA_TESTE)
     
     if df is not None:
-        print(df.head())
+        log.info(df.head())

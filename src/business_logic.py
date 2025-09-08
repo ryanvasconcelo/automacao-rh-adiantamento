@@ -4,7 +4,8 @@ import pandas as pd
 from datetime import date, timedelta
 
 def aplicar_regras_elegibilidade_jr(df: pd.DataFrame) -> pd.DataFrame:
-    print("Analisando elegibilidade dos funcionários...")
+    log.info
+    ("Analisando elegibilidade dos funcionários...")
     
     df['AdmissaoData'] = pd.to_datetime(df['AdmissaoData'], errors='coerce')
 
@@ -65,5 +66,5 @@ def aplicar_regras_elegibilidade_jr(df: pd.DataFrame) -> pd.DataFrame:
     # A coluna 'Elegivel' agora é baseada no Status final
     df['Elegivel'] = df['Status'] == 'Elegível'
 
-    print("Análise de elegibilidade concluída.")
+    log.info("Análise de elegibilidade concluída.")
     return df

@@ -25,7 +25,7 @@ def get_db_connection():
 
         # Verificação de segurança: garantir que todas as credenciais foram carregadas.
         if not all([server, database, username, password]):
-            print(
+            log.info(
                 "Erro: As variáveis de ambiente do banco de dados não foram configuradas corretamente no arquivo .env."
             )
             return None
@@ -43,17 +43,17 @@ def get_db_connection():
             f"Port=1433;"
         )
 
-        print("Tentando conectar ao banco de dados...")
+        log.info("Tentando conectar ao banco de dados...")
         conn = pyodbc.connect(connection_string)
-        print("Conexão estabelecida com sucesso!")
+        log.info("Conexão estabelecida com sucesso!")
         return conn
 
     except pyodbc.Error as ex:
         # Um bom código antecipa erros. Se a conexão falhar (senha errada, servidor offline),
         # o 'try...except' captura o erro e nos dá uma mensagem clara, em vez de quebrar o programa.
         sqlstate = ex.args[0]
-        print(f"Erro ao conectar ao banco de dados. SQLSTATE: {sqlstate}")
-        print(ex)
+        log.info(f"Erro ao conectar ao banco de dados. SQLSTATE: {sqlstate}")
+        log.info(ex)
         return None
 
 
@@ -62,9 +62,9 @@ def get_db_connection():
 if __name__ == "__main__":
     connection = get_db_connection()
     if connection:
-        print("Teste de conexão bem-sucedido. Fechando a conexão.")
+        log.info("Teste de conexão bem-sucedido. Fechando a conexão.")
         connection.close()
     else:
-        print(
+        log.info(
             "Teste de conexão falhou. Verifique as credenciais no .env e a disponibilidade do banco/rede."
         )
