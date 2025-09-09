@@ -1,0 +1,77 @@
+2025-09-08 13:54:59 | INFO     | __main__:run:16 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 13:54:59 | INFO     | src.data_extraction:fetch_employee_base_data:10 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 13:54:59 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 13:54:59 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-08 13:54:59 | INFO     | src.data_extraction:fetch_employee_base_data:47 - Dados extraídos com sucesso!
+2025-09-08 13:54:59 | INFO     | src.data_extraction:fetch_employee_base_data:58 - Conexão com o banco de dados fechada.
+2025-09-08 13:54:59 | INFO     | __main__:run:23 - Encontrados 281 funcionários ativos na base.
+2025-09-08 13:54:59 | INFO     | src.data_extraction:fetch_employee_leaves:65 - Buscando dados de afastamentos (licenças)...
+2025-09-08 13:54:59 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 13:54:59 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-08 13:54:59 | INFO     | __main__:run:27 - Encontrados 30 registros de afastamento/licenças para o período.
+2025-09-08 13:54:59 | INFO     | src.data_validation:validate_employee_data:39 - Iniciando validação da estrutura dos dados...
+2025-09-08 13:54:59 | SUCCESS  | src.data_validation:validate_employee_data:61 - Validação de dados concluída.
+2025-09-08 13:54:59 | INFO     | src.business_logic:processar_regras_e_calculos_jr:12 - Iniciando processamento de regras de negócio e cálculos...
+2025-09-08 13:54:59 | SUCCESS  | src.business_logic:processar_regras_e_calculos_jr:107 - Processamento de regras e cálculos concluído.
+2025-09-08 13:54:59 | INFO     | __main__:run:42 - 
+--- RELATÓRIO FINAL ---
+2025-09-08 13:54:59 | INFO     | __main__:run:43 - Total de funcionários analisados: 281
+2025-09-08 13:54:59 | INFO     | __main__:run:44 - Funcionários Elegíveis: 253
+2025-09-08 13:54:59 | INFO     | __main__:run:45 - Funcionários Inelegíveis: 28
+2025-09-08 13:54:59 | WARNING  | __main__:run:49 - 
+--- Detalhamento de Funcionários Inelegíveis ---
+2025-09-08 13:54:59 | WARNING  | __main__:run:50 - 
+    Matricula                                Nome      Status                                      Observacoes
+24     012283              ARIVANIA ROCHA CARDOSO  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+29     011971          FRANCISCA BATALHA DA SILVA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+39     011395                ELIENY LIMA PINHEIRO  Inelegível             Retorno de férias no dia 24 (> 15); 
+54     011968           GEOVANE FROTA DE OLIVEIRA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+58     011858            ELILSON MENDES ELEUTERIO  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+60     012055              JONATAS DA SILVA COSTA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+62     012251           MATHEUS LINHARES FERREIRA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+69     012210  CRISTIANE BERNARDINA DO NASCIMENTO  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+72     011922             KEICIANE  NUNES DA CRUZ  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+77     000545       CATARINA DOS SANTOS DE OLANDA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+81     011965                   FRANCILEUDE SILVA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+87     012360           SAMARA FERNANDES DA SILVA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+153    012284           ELINALDO DE SOUSA FEITOSA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+154    011942             RICHELLY OLIVEIRA VIANA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+160    012250           ANA FRANCE FARIAS BEZERRA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+161    012346                   NILSON SILVA MOTA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+164    011500            WILHAME BATISTA SARMENTO  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+171    011216   GABRIEL DOS ANJOS FAVACHO E SILVA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+182    012289       LUIS FELLIPE ALMEIDA DA SILVA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+192    000734             EDERALDO CHAVES PEREIRA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+193    012523              THAUAN DE MELO MARTINS  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+217    011421  SUELLEN CRISTINA FERNANDES DELMONT  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+219    001116       FRANCISCA NASCIMENTO DA SILVA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+220    000737        CLEIA CRISTINA FLOR DA SILVA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+222    000391           ALCIENE DA SILVA PALHARES  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+269    011777        ROSINEIDE DE SOUSA RODRIGUES  Inelegível              Flag de adiantamento desabilitado; 
+276    011431                FABIANA ARAUJO GOMES  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+278    011587                  ALEF DE SOUZA LIMA  Inelegível  Início de férias antes do dia 16 (já recebeu); 
+2025-09-08 13:54:59 | INFO     | __main__:run:53 - 
+--- Amostra de Valores Calculados para Funcionários Elegíveis ---
+2025-09-08 13:54:59 | INFO     | __main__:run:55 - 
+   Matricula                            Nome                 Cargo  DiasEfetivos  ValorAdiantamentoBruto
+0     011167          JOAO DE CASTRO VERCOSA  Ajudante de Depósito            20                   610.0
+1     012205       EDNAEL RUAN LIMA DA SILVA  Ajudante de Depósito            20                   610.0
+2     012234  RODRIGO DANILO COSTA DE SEIXAS  Ajudante de Depósito            20                   610.0
+3     012595              YAGO ALVES BARBOSA  Ajudante de Depósito            20                   610.0
+4     012639          GABRIEL NUNES DA ROCHA  Ajudante de Depósito            20                   610.0
+5     012645       JULIANE DOS SANTOS REBELO     Operador de caixa            20                   610.0
+6     012633         NAYANE DA SILVA MARTINS     Operador de caixa            20                   610.0
+7     012658        SALETE BEZERRA RODRIGUES     Operador de caixa            20                   610.0
+8     012659      MARCELA RODRIGUES DA SILVA     Operador de caixa            20                   610.0
+9     012684     VALDERLANE MARQUES DE SOUZA     Operador de caixa            20                   610.0
+10    012712  SOCORRO DANIELE AVELINO COELHO     Operador de caixa            13                   396.5
+11    012614         ALDEMARA DE SOUZA DACIO     Operador de caixa            20                   610.0
+12    012615       FRANCEANA TURIBIO RIBEIRO     Operador de caixa            20                   610.0
+13    012558          IVANA DOS SANTOS PINHO     Operador de caixa            20                   610.0
+14    012565         BRUNA CARVALHO DA SILVA     Operador de caixa            20                   610.0
+15    012560                ILDA SILVA MOURA     Operador de caixa            20                   610.0
+16    012575       LILIAN NASCIMENTO FEITOSA     Operador de caixa            20                   610.0
+17    012586           JEANE LEITE DE ARAUJO     Operador de caixa            20                   610.0
+18    012416       TACIANA CARVALHO DE SOUZA     Operador de caixa            20                   610.0
+19    012434      GRACY KELLY SOUZA DA COSTA     Operador de caixa            20                   610.0
+2025-09-08 13:54:59 | SUCCESS  | __main__:run:57 - --- PROCESSO CONCLUÍDO ---

@@ -1,0 +1,6 @@
+2025-09-08 13:35:58 | INFO     | __main__:run_investigation:13 - Executando query de investigação: SELECT * FROM TLI
+2025-09-08 13:35:58 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 13:35:58 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-08 13:35:58 | INFO     | __main__:run_investigation:18 - 
+--- Conteúdo da Tabela: TLI ---
+2025-09-08 13:35:58 | INFO     | __main__:run_investigation:25 - Conexão de investigação fechada.

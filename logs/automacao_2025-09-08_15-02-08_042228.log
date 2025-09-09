@@ -1,0 +1,139 @@
+2025-09-08 15:02:09 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 15:02:09 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 15:02:09 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 15:02:09 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-08 15:02:09 | INFO     | src.data_extraction:fetch_employee_base_data:48 - Dados extraídos com sucesso!
+2025-09-08 15:02:09 | INFO     | src.data_extraction:fetch_employee_base_data:59 - Conexão com o banco de dados fechada.
+2025-09-08 15:02:09 | INFO     | src.data_extraction:fetch_employee_leaves:66 - Buscando dados de afastamentos (licenças)...
+2025-09-08 15:02:09 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 15:02:09 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-08 15:02:09 | INFO     | src.data_extraction:fetch_employee_loans:159 - Buscando dados de empréstimos consignados...
+2025-09-08 15:02:09 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 15:02:09 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-08 15:02:09 | INFO     | src.data_validation:validate_employee_data:39 - Iniciando validação da estrutura dos dados...
+2025-09-08 15:02:09 | SUCCESS  | src.data_validation:validate_employee_data:61 - Validação de dados concluída.
+2025-09-08 15:02:09 | INFO     | src.business_logic:processar_regras_e_calculos_jr:12 - Iniciando processamento de regras de negócio e cálculos...
+2025-09-08 15:02:09 | SUCCESS  | src.business_logic:processar_regras_e_calculos_jr:102 - Processamento de regras e cálculos concluído.
+2025-09-08 15:02:09 | INFO     | src.business_logic:aplicar_descontos_consignado:110 - Aplicando descontos de empréstimo consignado...
+2025-09-08 15:02:09 | SUCCESS  | src.business_logic:aplicar_descontos_consignado:127 - Descontos aplicados com sucesso.
+2025-09-08 15:02:09 | SUCCESS  | src.file_generator:gerar_arquivo_final:36 - Arquivo final gerado com sucesso em: data/adiantamento_9098_2025-09-08.csv
+2025-09-08 15:02:09 | SUCCESS  | main:run:47 - --- PROCESSO CONCLUÍDO ---
+2025-09-08 15:25:39 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 15:25:39 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 15:25:39 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 15:26:22 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 15:26:22 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 15:26:22 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 15:26:22 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-08 15:26:22 | INFO     | src.data_extraction:fetch_employee_base_data:48 - Dados extraídos com sucesso!
+2025-09-08 15:26:22 | INFO     | src.data_extraction:fetch_employee_base_data:59 - Conexão com o banco de dados fechada.
+2025-09-08 15:26:22 | INFO     | src.data_extraction:fetch_employee_leaves:66 - Buscando dados de afastamentos (licenças)...
+2025-09-08 15:26:22 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 15:26:22 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-08 15:26:22 | INFO     | src.data_extraction:fetch_employee_loans:159 - Buscando dados de empréstimos consignados...
+2025-09-08 15:26:22 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 15:26:22 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-08 15:26:22 | INFO     | src.data_validation:validate_employee_data:39 - Iniciando validação da estrutura dos dados...
+2025-09-08 15:26:22 | SUCCESS  | src.data_validation:validate_employee_data:61 - Validação de dados concluída.
+2025-09-08 15:26:22 | INFO     | src.business_logic:processar_regras_e_calculos_jr:12 - Iniciando processamento de regras de negócio e cálculos...
+2025-09-08 15:26:22 | SUCCESS  | src.business_logic:processar_regras_e_calculos_jr:102 - Processamento de regras e cálculos concluído.
+2025-09-08 15:26:22 | INFO     | src.business_logic:aplicar_descontos_consignado:110 - Aplicando descontos de empréstimo consignado...
+2025-09-08 15:26:22 | SUCCESS  | src.business_logic:aplicar_descontos_consignado:127 - Descontos aplicados com sucesso.
+2025-09-08 15:26:22 | SUCCESS  | src.file_generator:gerar_arquivo_final:36 - Arquivo final gerado com sucesso em: data/adiantamento_9098_2025-09-08.csv
+2025-09-08 15:26:22 | SUCCESS  | main:run:47 - --- PROCESSO CONCLUÍDO ---
+2025-09-08 19:14:10 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:10 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:10 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:10 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:10 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:10 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:11 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:11 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:11 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:11 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:11 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:11 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:12 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:12 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:12 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:12 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:12 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:12 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:12 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:12 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:12 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:12 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:12 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:12 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:12 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:12 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:12 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:12 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:12 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:12 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:12 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:12 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:12 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:12 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:12 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:12 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:14:13 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:14:13 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:14:13 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:15:25 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:25 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:25 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:25 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:25 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:25 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:26 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:26 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:26 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:26 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:26 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:26 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:27 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:27 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:27 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:27 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:27 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:27 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:27 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:27 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:27 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:28 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:15:28 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:15:28 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 19:15:32 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 19:15:32 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 19:15:32 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 19:16:47 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 19:16:47 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 19:16:47 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 22:33:36 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 22:33:36 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 22:33:36 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 22:33:59 | INFO     | main:run:17 - --- INICIANDO AUTOMAÇÃO DE ADIANTAMENTO PARA EMPRESA 9098 ---
+2025-09-08 22:33:59 | INFO     | src.data_extraction:fetch_employee_base_data:11 - Iniciando a busca de dados para a empresa: 9098
+2025-09-08 22:33:59 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-08 22:34:51 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 22:34:51 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 22:34:51 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
+2025-09-08 22:35:14 | INFO     | src.database:get_db_connection:56 - Erro ao conectar ao banco de dados. SQLSTATE: 08S01
+2025-09-08 22:35:14 | INFO     | src.database:get_db_connection:57 - ('08S01', '[08S01] [FreeTDS][SQL Server]Unable to connect: TDS server is unavailable or does not exist (20009) (SQLDriverConnect)')
+2025-09-08 22:35:14 | INFO     | src.data_extraction:fetch_employee_base_data:51 - Não foi possível extrair dados, a conexão com o banco falhou.
