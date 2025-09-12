@@ -1,13 +1,16 @@
-# src/data_extraction.py
+# data_extraction.py (CORRIGIDO)
 
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date
 from .database import get_db_connection
 from config.logging_config import log
 
 def fetch_employee_base_data(emp_codigo: str, ano: int, mes: int):
     log.info(f"Iniciando a busca de dados para a empresa: {emp_codigo} | Competência: {ano}-{mes:02d}")
     data_ref = f"{ano}-{mes:02d}-20"
+    # AJUSTE NA SUBQUERY: a data de referência para o salário agora é o início do mês
+    inicio_mes_ref = f"{ano}-{mes:02d}-01"
+    
     query = f"""
         SELECT
             E.Codigo AS Matricula, E.Nome, E.AdmissaoData, E.DtRescisao,
@@ -19,10 +22,11 @@ def fetch_employee_base_data(emp_codigo: str, ano: int, mes: int):
         WHERE
             S.DATA = (
                 SELECT MAX(S2.DATA) FROM SEP AS S2
-                WHERE S2.EMP_Codigo = S.EMP_Codigo AND S2.EPG_Codigo = S.EPG_Codigo AND S2.DATA <= '{data_ref}'
+                WHERE S2.EMP_Codigo = S.EMP_Codigo AND S2.EPG_Codigo = S.EPG_Codigo AND S2.DATA < '{inicio_mes_ref}'
             )
             AND (E.DtRescisao IS NULL OR E.DtRescisao > '{data_ref}')
             AND E.EMP_Codigo = '{emp_codigo}'
+            AND C.NOME <> 'DIRETOR'
     """
     connection = None
     try:

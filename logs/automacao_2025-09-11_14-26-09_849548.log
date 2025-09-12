@@ -1,0 +1,6 @@
+2025-09-11 14:26:09 | INFO     | main:run:16 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-11 14:26:09 | ERROR    | __main__:<module>:108 - Falha crítica ao processar JR RODRIGUES DP: name 'date' is not defined
+2025-09-11 14:26:24 | INFO     | main:run:16 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-11 14:26:24 | ERROR    | __main__:<module>:108 - Falha crítica ao processar JR RODRIGUES DP: name 'date' is not defined
+2025-09-11 14:26:24 | INFO     | main:run:16 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-11 14:26:24 | ERROR    | __main__:<module>:108 - Falha crítica ao processar JR RODRIGUES DP: name 'date' is not defined

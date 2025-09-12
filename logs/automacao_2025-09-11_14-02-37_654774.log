@@ -1,0 +1,5 @@
+2025-09-11 14:02:37 | INFO     | __main__:run:18 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-11 14:02:37 | INFO     | src.data_extraction:fetch_employee_base_data:9 - Iniciando a busca de dados para a empresa: 9098 | Competência: 2025-08
+2025-09-11 14:02:37 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-11 14:02:37 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-11 14:02:37 | WARNING  | __main__:run:23 - Nenhum funcionário ativo encontrado para a empresa 9098. Encerrando.

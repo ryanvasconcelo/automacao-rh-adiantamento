@@ -1,4 +1,4 @@
-# app.py (Versão Final com Salário Bruto, Totalizador e Design Aprimorado)
+# app.py (VERSÃO FINAL COM COLUNA CARGO)
 
 import streamlit as st
 import pandas as pd
@@ -7,28 +7,20 @@ from src.data_extraction import fetch_all_companies
 from datetime import date
 from config.logging_config import log
 
-# --- Configuração da Página ---
-st.set_page_config(
-    page_title="Projecont RH | Automações",
-    page_icon="🤖",
-    layout="wide"
-)
+st.set_page_config(page_title="Projecont RH | Automações", page_icon="🤖", layout="wide")
 
-# --- Funções de Cache ---
-@st.cache_data(ttl=600) # Cache de 10 minutos para a lista de empresas
+@st.cache_data(ttl=600)
 def carregar_empresas():
     empresas = fetch_all_companies()
     if not empresas or "JR Rodrigues (Salmo 91)" not in empresas:
          empresas["JR Rodrigues (Salmo 91)"] = "9098"
     return empresas
 
-# --- Carregamento dos Dados ---
 EMPRESAS = carregar_empresas()
 if not EMPRESAS:
     st.error("Não foi possível carregar a lista de empresas do banco de dados.")
     st.stop()
 
-# --- Barra Lateral (Sidebar) ---
 with st.sidebar:
     st.title("Seleção")
     st.divider()
@@ -50,7 +42,6 @@ with st.sidebar:
         default=list(EMPRESAS.keys())[0] if EMPRESAS else []
     )
 
-# --- Painel Principal ---
 st.header(tipo_processamento)
 st.caption("Selecione as empresas e o tipo de processamento, depois clique em 'Gerar Relatórios'.")
 
@@ -70,7 +61,6 @@ if st.button("Gerar Relatórios", type="primary", use_container_width=True):
             with st.container(border=True):
                 st.markdown(f"#### {nome_empresa}")
                 try:
-                    # Apenas a JR Rodrigues tem a lógica implementada
                     if codigo_empresa == "9098":
                         with st.spinner(f"Processando {nome_empresa} para {mes_selecionado:02d}/{ano_selecionado}..."):
                             elegiveis_df, inelegiveis_df = run(empresa_codigo=codigo_empresa, ano=ano_selecionado, mes=mes_selecionado)
@@ -86,16 +76,17 @@ if st.button("Gerar Relatórios", type="primary", use_container_width=True):
 
                         if not inelegiveis_df.empty:
                             with st.expander("Ver detalhes dos funcionários inelegíveis"):
-                                st.dataframe(inelegiveis_df[['Matricula', 'Nome', 'Observacoes']], use_container_width=True)
+                                # ADICIONADO 'Cargo'
+                                st.dataframe(inelegiveis_df[['Matricula', 'Nome', 'Cargo', 'Observacoes']], use_container_width=True)
                         
                         if not elegiveis_df.empty:
                             st.markdown("---")
                             st.subheader("✅ Detalhes dos Funcionários Elegíveis")
                             
-                            colunas_elegiveis = ['Matricula', 'Nome', 'SalarioContratual', 'ValorAdiantamentoBruto', 'ValorDesconto', 'ValorLiquidoAdiantamento']
+                            # ADICIONADO 'Cargo'
+                            colunas_elegiveis = ['Matricula', 'Nome', 'Cargo', 'SalarioContratual', 'ValorAdiantamentoBruto', 'ValorDesconto', 'ValorLiquidoAdiantamento']
                             
                             df_display = elegiveis_df[colunas_elegiveis].copy()
-                            # Formata colunas de moeda para melhor visualização
                             for col in ['SalarioContratual', 'ValorAdiantamentoBruto', 'ValorDesconto', 'ValorLiquidoAdiantamento']:
                                 if col in df_display.columns:
                                      df_display[col] = df_display[col].apply(lambda x: f"R$ {x:_.2f}".replace('.', ',').replace('_', '.') if pd.notna(x) else "R$ 0,00")

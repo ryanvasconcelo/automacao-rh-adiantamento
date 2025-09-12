@@ -1,0 +1,81 @@
+2025-09-11 14:13:20 | INFO     | main:run:18 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-11 14:13:20 | INFO     | src.data_extraction:fetch_employee_base_data:9 - Iniciando a busca de dados para a empresa: 9098 | Competência: 2025-08
+2025-09-11 14:13:20 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-11 14:13:20 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-11 14:13:20 | ERROR    | src.data_extraction:fetch_employee_base_data:39 - Ocorreu um erro ao executar a consulta base: Execution failed on sql '
+        SELECT
+            E.Codigo AS Matricula, E.Nome, E.AdmissaoData, E.DtRescisao,
+            S.Valor AS SalarioContratual, S.Adiantamento AS FlagAdiantamento,
+            S.PercentualAdiant, S.ValorAdiant AS ValorFixoAdiant, C.NOME AS Cargo
+        FROM EPG AS E
+        -- Junta com Cargos, movendo a condição para o ON para não excluir funcionários sem cargo
+        LEFT JOIN CAR AS C ON S.CAR_Codigo = C.CODIGO 
+            AND S.EMP_Codigo = C.EMP_Codigo 
+            AND C.NOME <> 'DIRETOR'
+        -- Junta com Salários, garantindo que todos os funcionários venham
+        LEFT JOIN SEP AS S ON E.EMP_Codigo = S.EMP_Codigo 
+            AND E.Codigo = S.EPG_Codigo
+            AND S.DATA = (
+                SELECT MAX(S2.DATA) FROM SEP AS S2
+                WHERE S2.EMP_Codigo = S.EMP_Codigo AND S2.EPG_Codigo = S.EPG_Codigo AND S2.DATA < '2025-08-01'
+            )
+        WHERE
+            (E.DtRescisao IS NULL OR E.DtRescisao > '2025-08-20')
+            AND E.EMP_Codigo = '9098'
+    ': ('42000', '[42000] [FreeTDS][SQL Server]The multi-part identifier "S.CAR_Codigo" could not be bound. (4104) (SQLExecDirectW)')
+2025-09-11 14:13:20 | WARNING  | main:run:23 - Nenhum funcionário ativo encontrado para a empresa 9098. Encerrando.
+2025-09-11 14:13:20 | ERROR    | __main__:<module>:108 - Falha crítica ao processar JR RODRIGUES DP: 'ValorLiquidoAdiantamento'
+2025-09-11 14:13:20 | INFO     | main:run:18 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-11 14:13:20 | INFO     | src.data_extraction:fetch_employee_base_data:9 - Iniciando a busca de dados para a empresa: 9098 | Competência: 2025-08
+2025-09-11 14:13:20 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-11 14:13:20 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-11 14:13:20 | ERROR    | src.data_extraction:fetch_employee_base_data:39 - Ocorreu um erro ao executar a consulta base: Execution failed on sql '
+        SELECT
+            E.Codigo AS Matricula, E.Nome, E.AdmissaoData, E.DtRescisao,
+            S.Valor AS SalarioContratual, S.Adiantamento AS FlagAdiantamento,
+            S.PercentualAdiant, S.ValorAdiant AS ValorFixoAdiant, C.NOME AS Cargo
+        FROM EPG AS E
+        -- Junta com Cargos, movendo a condição para o ON para não excluir funcionários sem cargo
+        LEFT JOIN CAR AS C ON S.CAR_Codigo = C.CODIGO 
+            AND S.EMP_Codigo = C.EMP_Codigo 
+            AND C.NOME <> 'DIRETOR'
+        -- Junta com Salários, garantindo que todos os funcionários venham
+        LEFT JOIN SEP AS S ON E.EMP_Codigo = S.EMP_Codigo 
+            AND E.Codigo = S.EPG_Codigo
+            AND S.DATA = (
+                SELECT MAX(S2.DATA) FROM SEP AS S2
+                WHERE S2.EMP_Codigo = S.EMP_Codigo AND S2.EPG_Codigo = S.EPG_Codigo AND S2.DATA < '2025-08-01'
+            )
+        WHERE
+            (E.DtRescisao IS NULL OR E.DtRescisao > '2025-08-20')
+            AND E.EMP_Codigo = '9098'
+    ': ('42000', '[42000] [FreeTDS][SQL Server]The multi-part identifier "S.CAR_Codigo" could not be bound. (4104) (SQLExecDirectW)')
+2025-09-11 14:13:20 | WARNING  | main:run:23 - Nenhum funcionário ativo encontrado para a empresa 9098. Encerrando.
+2025-09-11 14:13:20 | ERROR    | __main__:<module>:108 - Falha crítica ao processar JR RODRIGUES DP: 'ValorLiquidoAdiantamento'
+2025-09-11 14:13:21 | INFO     | main:run:18 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-11 14:13:21 | INFO     | src.data_extraction:fetch_employee_base_data:9 - Iniciando a busca de dados para a empresa: 9098 | Competência: 2025-08
+2025-09-11 14:13:21 | INFO     | src.database:get_db_connection:47 - Tentando conectar ao banco de dados...
+2025-09-11 14:13:21 | INFO     | src.database:get_db_connection:49 - Conexão estabelecida com sucesso!
+2025-09-11 14:13:21 | ERROR    | src.data_extraction:fetch_employee_base_data:39 - Ocorreu um erro ao executar a consulta base: Execution failed on sql '
+        SELECT
+            E.Codigo AS Matricula, E.Nome, E.AdmissaoData, E.DtRescisao,
+            S.Valor AS SalarioContratual, S.Adiantamento AS FlagAdiantamento,
+            S.PercentualAdiant, S.ValorAdiant AS ValorFixoAdiant, C.NOME AS Cargo
+        FROM EPG AS E
+        -- Junta com Cargos, movendo a condição para o ON para não excluir funcionários sem cargo
+        LEFT JOIN CAR AS C ON S.CAR_Codigo = C.CODIGO 
+            AND S.EMP_Codigo = C.EMP_Codigo 
+            AND C.NOME <> 'DIRETOR'
+        -- Junta com Salários, garantindo que todos os funcionários venham
+        LEFT JOIN SEP AS S ON E.EMP_Codigo = S.EMP_Codigo 
+            AND E.Codigo = S.EPG_Codigo
+            AND S.DATA = (
+                SELECT MAX(S2.DATA) FROM SEP AS S2
+                WHERE S2.EMP_Codigo = S.EMP_Codigo AND S2.EPG_Codigo = S.EPG_Codigo AND S2.DATA < '2025-08-01'
+            )
+        WHERE
+            (E.DtRescisao IS NULL OR E.DtRescisao > '2025-08-20')
+            AND E.EMP_Codigo = '9098'
+    ': ('42000', '[42000] [FreeTDS][SQL Server]The multi-part identifier "S.CAR_Codigo" could not be bound. (4104) (SQLExecDirectW)')
+2025-09-11 14:13:21 | WARNING  | main:run:23 - Nenhum funcionário ativo encontrado para a empresa 9098. Encerrando.
+2025-09-11 14:13:21 | ERROR    | __main__:<module>:108 - Falha crítica ao processar JR RODRIGUES DP: 'ValorLiquidoAdiantamento'
