@@ -1,19 +1,16 @@
-# data_extraction.py (CORRIGIDO)
-
+# src/data_extraction.py
 import pandas as pd
-from datetime import date
-from .database import get_db_connection
-from config.logging_config import log
+from .database import get_connection
 
-def fetch_employee_base_data(emp_codigo: str, ano: int, mes: int):
-    log.info(f"Iniciando a busca de dados para a empresa: {emp_codigo} | Competência: {ano}-{mes:02d}")
-    data_ref = f"{ano}-{mes:02d}-20"
-    # AJUSTE NA SUBQUERY: a data de referência para o salário agora é o início do mês
+
+def fetch_employee_base_data(emp_codigo: str, ano: int, mes: int) -> pd.DataFrame:
+    """Busca dados base dos funcionários usando queries parametrizadas e seguras."""
     inicio_mes_ref = f"{ano}-{mes:02d}-01"
-    
-    query = f"""
+
+    query = """
         SELECT
             E.Codigo AS Matricula, E.Nome, E.AdmissaoData, E.DtRescisao,
+            CAST(E.EMP_Codigo AS BIGINT) AS EmpresaCodigo,
             S.Valor AS SalarioContratual, S.Adiantamento AS FlagAdiantamento,
             S.PercentualAdiant, S.ValorAdiant AS ValorFixoAdiant, C.NOME AS Cargo
         FROM EPG AS E
@@ -22,86 +19,76 @@ def fetch_employee_base_data(emp_codigo: str, ano: int, mes: int):
         WHERE
             S.DATA = (
                 SELECT MAX(S2.DATA) FROM SEP AS S2
-                WHERE S2.EMP_Codigo = S.EMP_Codigo AND S2.EPG_Codigo = S.EPG_Codigo AND S2.DATA < '{inicio_mes_ref}'
+                WHERE S2.EMP_Codigo = S.EMP_Codigo AND S2.EPG_Codigo = S.EPG_Codigo AND S2.DATA <= ?
             )
-            AND (E.DtRescisao IS NULL OR E.DtRescisao > '{data_ref}')
-            AND E.EMP_Codigo = '{emp_codigo}'
-            AND C.NOME <> 'DIRETOR'
+            AND E.EMP_Codigo = ?
+            AND (E.DtRescisao IS NULL OR E.DtRescisao >= ?)
     """
-    connection = None
-    try:
-        connection = get_db_connection()
-        return pd.read_sql(query, connection) if connection else None
-    except Exception as e:
-        log.error(f"Ocorreu um erro ao executar a consulta base: {e}")
-        return None
-    finally:
-        if connection: connection.close()
+    # CORREÇÃO: Usando 'ano' e 'mes' em vez de 'year' e 'month'
+    fim_do_mes = pd.Timestamp(ano, mes, 1) + pd.offsets.MonthEnd(0)
+    params = [fim_do_mes, emp_codigo, inicio_mes_ref]
 
-def fetch_employee_leaves(emp_codigo: str, employee_ids: list, ano: int, mes: int):
-    log.info("Buscando dados de afastamentos (licenças)...")
-    if not employee_ids: return pd.DataFrame()
-    ids_string = ", ".join([f"'{eid}'" for eid in employee_ids])
+    with get_connection() as conn:
+        return pd.read_sql(query, conn, params=params)
+
+
+def fetch_employee_leaves(
+    emp_codigo: str, employee_ids: list, ano: int, mes: int
+) -> pd.DataFrame:
+    if not employee_ids:
+        return pd.DataFrame()
+
     inicio_mes = f"{ano}-{mes:02d}-01"
     proximo_mes_ano = ano + 1 if mes == 12 else ano
     proximo_mes_mes = 1 if mes == 12 else mes + 1
     inicio_proximo_mes = f"{proximo_mes_ano}-{proximo_mes_mes:02d}-01"
-    query = f"""
-        SELECT EPG_CODIGO AS Matricula, DTINICIAL AS DataInicioAfastamento,
-               DTFINAL AS DataFimAfastamento, TLI_CODIGO AS CodigoTipoLicenca
-        FROM LIC
-        WHERE EMP_Codigo = '{emp_codigo}' AND EPG_CODIGO IN ({ids_string})
-          AND DTFINAL >= '{inicio_mes}' AND DTINICIAL < '{inicio_proximo_mes}'
-    """
-    connection = None
-    try:
-        connection = get_db_connection()
-        if connection:
-            leaves_df = pd.read_sql(query, connection)
-            leaves_df['DataInicioAfastamento'] = pd.to_datetime(leaves_df['DataInicioAfastamento'], errors='coerce')
-            leaves_df['DataFimAfastamento'] = pd.to_datetime(leaves_df['DataFimAfastamento'], errors='coerce')
-            return leaves_df
-        return pd.DataFrame()
-    except Exception as e:
-        log.error(f"Ocorreu um erro ao buscar afastamentos: {e}")
-        return pd.DataFrame()
-    finally:
-        if connection: connection.close()
 
-def fetch_employee_loans(emp_codigo: str, employee_ids: list, ano: int, mes: int):
-    log.info("Buscando dados de empréstimos consignados...")
-    if not employee_ids: return pd.DataFrame()
-    ids_string = ", ".join([f"'{eid}'" for eid in employee_ids])
+    placeholders = ", ".join("?" * len(employee_ids))
+    query = f"""
+        SELECT EPG_CODIGO AS Matricula, DTINICIAL AS DtInicio, DTFINAL AS DtFim, 
+               TLI_CODIGO AS CodigoTipoLicenca, T.NOME AS Tipo
+        FROM LIC L JOIN TLI T ON L.TLI_CODIGO = T.CODIGO
+        WHERE L.EMP_Codigo = ? 
+          AND L.EPG_CODIGO IN ({placeholders})
+          AND L.DTFINAL >= ? AND L.DTINICIAL < ?
+    """
+    params = [emp_codigo] + employee_ids + [inicio_mes, inicio_proximo_mes]
+
+    with get_connection() as conn:
+        df = pd.read_sql(query, conn, params=params)
+        df["DtInicio"] = pd.to_datetime(df["DtInicio"], errors="coerce")
+        df["DtFim"] = pd.to_datetime(df["DtFim"], errors="coerce")
+        return df
+
+
+def fetch_employee_loans(
+    emp_codigo: str, employee_ids: list, ano: int, mes: int
+) -> pd.DataFrame:
+    if not employee_ids:
+        return pd.DataFrame()
+
     ano_mes_competencia = f"{ano}{mes:02d}"
+    placeholders = ", ".join("?" * len(employee_ids))
     query = f"""
         SELECT COT_EPG_Codigo AS Matricula, SUM(ValorParcela) AS ValorParcelaConsignado
         FROM COE
-        WHERE EMP_Codigo = '{emp_codigo}' AND COT_EPG_Codigo IN ({ids_string})
-          AND AnoMesDesconto = '{ano_mes_competencia}'
+        WHERE EMP_Codigo = ? AND COT_EPG_Codigo IN ({placeholders})
+          AND AnoMesDesconto = ?
         GROUP BY COT_EPG_Codigo
     """
-    connection = None
-    try:
-        connection = get_db_connection()
-        return pd.read_sql(query, connection) if connection else pd.DataFrame()
-    except Exception as e:
-        log.error(f"Ocorreu um erro ao buscar empréstimos: {e}")
-        return pd.DataFrame()
-    finally:
-        if connection: connection.close()
+    params = [emp_codigo] + employee_ids + [ano_mes_competencia]
+
+    with get_connection() as conn:
+        return pd.read_sql(query, conn, params=params)
+
 
 def fetch_all_companies():
-    log.info("Buscando lista de todas as empresas ativas...")
     query = "SELECT Codigo, Nome FROM EMP WHERE DESATIVADA = 0 ORDER BY Nome"
-    connection = None
     try:
-        connection = get_db_connection()
-        if connection:
-            companies_df = pd.read_sql(query, connection)
-            return pd.Series(companies_df.Codigo.values, index=companies_df.Nome).to_dict()
-        return {}
+        with get_connection() as conn:
+            companies_df = pd.read_sql(query, conn)
+            return pd.Series(
+                companies_df.Codigo.values, index=companies_df.Nome
+            ).to_dict()
     except Exception as e:
-        log.error(f"Não foi possível buscar a lista de empresas. A tabela 'EMP' existe? Erro: {e}")
         return {"JR Rodrigues (Fallback)": "9098"}
-    finally:
-        if connection: connection.close()

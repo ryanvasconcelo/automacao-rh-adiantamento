@@ -1,0 +1,15 @@
+2025-09-16 12:22:45 | INFO     | main:run:18 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-16 12:22:45 | INFO     | src.data_extraction:fetch_employee_base_data:43 - Iniciando a busca de dados para a empresa: 9098 | Competência: 2025-08
+2025-09-16 12:22:45 | ERROR    | src.data_extraction:fetch_employee_base_data:71 - Ocorreu um erro ao executar a consulta base: '_GeneratorContextManager' object has no attribute 'cursor'
+2025-09-16 12:22:48 | INFO     | main:run:18 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-16 12:22:48 | INFO     | src.data_extraction:fetch_employee_base_data:43 - Iniciando a busca de dados para a empresa: 9098 | Competência: 2025-08
+2025-09-16 12:22:48 | ERROR    | src.data_extraction:fetch_employee_base_data:71 - Ocorreu um erro ao executar a consulta base: '_GeneratorContextManager' object has no attribute 'cursor'
+2025-09-16 12:22:48 | INFO     | main:run:18 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-16 12:22:48 | INFO     | src.data_extraction:fetch_employee_base_data:43 - Iniciando a busca de dados para a empresa: 9098 | Competência: 2025-08
+2025-09-16 12:22:48 | ERROR    | src.data_extraction:fetch_employee_base_data:71 - Ocorreu um erro ao executar a consulta base: '_GeneratorContextManager' object has no attribute 'cursor'
+2025-09-16 12:22:48 | INFO     | main:run:18 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-16 12:22:48 | INFO     | src.data_extraction:fetch_employee_base_data:43 - Iniciando a busca de dados para a empresa: 9098 | Competência: 2025-08
+2025-09-16 12:22:48 | ERROR    | src.data_extraction:fetch_employee_base_data:71 - Ocorreu um erro ao executar a consulta base: '_GeneratorContextManager' object has no attribute 'cursor'
+2025-09-16 12:22:49 | INFO     | main:run:18 - --- INICIANDO AUTOMAÇÃO PARA EMPRESA 9098 | COMPETÊNCIA: 2025-08 ---
+2025-09-16 12:22:49 | INFO     | src.data_extraction:fetch_employee_base_data:43 - Iniciando a busca de dados para a empresa: 9098 | Competência: 2025-08
+2025-09-16 12:22:49 | ERROR    | src.data_extraction:fetch_employee_base_data:71 - Ocorreu um erro ao executar a consulta base: '_GeneratorContextManager' object has no attribute 'cursor'
