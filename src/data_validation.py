@@ -8,6 +8,7 @@ from typing import Optional, Any
 from datetime import date
 from config.logging_config import log
 
+
 class EmployeeModel(BaseModel):
     # Definimos nosso modelo de dados exatamente como antes.
     Matricula: str
@@ -31,18 +32,19 @@ class EmployeeModel(BaseModel):
         # Para todos os outros casos, o valor original é mantido.
         return v
 
+
 def validate_employee_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     Valida cada linha do DataFrame. Se uma linha falhar, ela é marcada como
     inelegível e o erro é logado, sem quebrar o programa.
     """
     log.info("Iniciando validação da estrutura dos dados...")
-    
-    if 'Status' not in df.columns:
-        df['Status'] = ''
-    if 'Observacoes' not in df.columns:
-        df['Observacoes'] = ''
-            
+
+    if "Status" not in df.columns:
+        df["Status"] = ""
+    if "Observacoes" not in df.columns:
+        df["Observacoes"] = ""
+
     validated_rows = []
     for index, row in df.iterrows():
         row_data = row.to_dict()
@@ -52,12 +54,14 @@ def validate_employee_data(df: pd.DataFrame) -> pd.DataFrame:
             validated_rows.append(row)
         except ValidationError as e:
             # Mantemos o log de erro para o caso de problemas de formato real.
-            log.error(f"Erro de validação na Matrícula {row_data.get('Matricula', 'N/A')}: {e}")
-            row['Status'] = 'Inelegível'
-            row['Observacoes'] += 'Dados com formato inválido (ValidationError); '
+            log.error(
+                f"Erro de validação na Matrícula {row_data.get('Matricula', 'N/A')}: {e}"
+            )
+            row["Status"] = "Inelegível"
+            row["Observacoes"] += "Dados com formato inválido (ValidationError); "
             validated_rows.append(row)
             continue
-            
+
     log.success("Validação de dados concluída.")
     if not validated_rows:
         return pd.DataFrame(columns=df.columns)

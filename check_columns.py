@@ -1,28 +1,16 @@
 # check_columns.py (Modo Diagnóstico)
 import os
-import pyodbc
+import pymssql
 from dotenv import load_dotenv
 
 
 def run_diagnostic_query():
     load_dotenv(override=True)
-    DRV = os.getenv("DB_DRIVER", "").strip()
     HOST = os.getenv("DB_HOST", "").strip()
-    PORT = os.getenv("DB_PORT", "1433").strip()
+    PORT = int(os.getenv("DB_PORT", "1433").strip())
     DB = os.getenv("DB_DATABASE", "").strip()
     USR = os.getenv("DB_USER", "").strip()
     PWD = os.getenv("DB_PASSWORD", "").strip()
-
-    connection_string = (
-        f"Driver={{{DRV}}};"
-        f"Server={HOST};"
-        f"Port={PORT};"
-        f"Database={DB};"
-        f"UID={USR};"
-        f"PWD={PWD};"
-        f"TDS_Version=7.4;"
-        f"timeout=30;"
-    )
 
     # Esta query tenta fazer a conversão que está falhando em toda a tabela.
     # Se ela falhar, confirma nossa teoria.
@@ -33,17 +21,20 @@ def run_diagnostic_query():
     conn = None
     try:
         print("--- INICIANDO TESTE DE DIAGNÓSTICO ---")
-        conn = pyodbc.connect(connection_string, autocommit=True)
+        conn = pymssql.connect(
+            server=HOST, port=PORT, user=USR, password=PWD, database=DB, timeout=30
+        )
         print("✅ Conexão bem-sucedida.")
 
         print(f"Executando query de diagnóstico: {query}")
         cursor = conn.cursor()
         cursor.execute(query)
+        result = cursor.fetchone()
 
-        print("✅ Query executada! Nenhuma linha causou o erro de overflow.")
-        print("Isso é inesperado. O problema pode ser a interação com o SQLAlchemy.")
+        print(f"✅ Query executada! Total de registros: {result[0]}")
+        print("Nenhuma linha causou o erro de overflow.")
 
-    except pyodbc.Error as e:
+    except pymssql.Error as e:
         # Se o erro de 'Arithmetic overflow' acontecer aqui, encontramos o culpado.
         print("\n❌ ERRO CONFIRMADO!")
         print(
