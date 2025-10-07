@@ -407,3 +407,6 @@ zict @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/zict_1728
 zipp @ file:///private/var/folders/c_/qfmhj66j0tn016nkx_th4hxm0000gp/T/abs_d1md1mr9su/croot/zipp_1732630765619/work
 zope.interface @ file:///Users/builder/cbouss/buildout/croot/zope.interface_1735846118569/work
 zstandard @ file:///private/var/folders/sy/f16zz6x50xz3113nwtb9bvq00000gp/T/abs_65utj9q8ya/croot/zstandard_1731360545821/work
+fastapi
+uvicorn[standard]
+python-multipart

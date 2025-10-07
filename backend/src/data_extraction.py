@@ -35,6 +35,24 @@ def audit_advance_flags(emp_codigo: str) -> pd.DataFrame:
         return pd.read_sql(query, conn, params=params)
 
 
+def debug_fetch_active_employee_count(emp_codigo: str, ano: int, mes: int) -> int:
+    """
+    DEBUG: Conta o número de funcionários ativos em EPG para um dado período.
+    """
+    inicio_mes_ref = f"{ano}-{mes:02d}-01"
+    query = """
+        SELECT COUNT(*) as count
+        FROM EPG AS E
+        WHERE
+            E.EMP_Codigo = %s
+            AND (E.DtRescisao IS NULL OR E.DtRescisao >= %s)
+    """
+    params = [emp_codigo, inicio_mes_ref]
+    with get_connection() as conn:
+        count_df = pd.read_sql(query, conn, params=params)
+        return count_df['count'].iloc[0] if not count_df.empty else 0
+
+
 def fetch_employee_base_data(emp_codigo: str, ano: int, mes: int) -> pd.DataFrame:
     inicio_mes_ref = f"{ano}-{mes:02d}-01"
     query = """
@@ -44,14 +62,14 @@ def fetch_employee_base_data(emp_codigo: str, ano: int, mes: int) -> pd.DataFram
             S.Valor AS SalarioContratual, S.Adiantamento AS FlagAdiantamento,
             S.PercentualAdiant, S.ValorAdiant AS ValorFixoAdiant, C.NOME AS Cargo
         FROM EPG AS E
-        INNER JOIN SEP AS S ON E.EMP_Codigo = S.EMP_Codigo AND E.Codigo = S.EPG_Codigo
+        LEFT JOIN SEP AS S ON E.EMP_Codigo = S.EMP_Codigo AND E.Codigo = S.EPG_Codigo
+        AND S.DATA = (
+            SELECT MAX(S2.DATA) FROM SEP AS S2
+            WHERE S2.EMP_Codigo = S.EMP_Codigo AND S2.EPG_Codigo = S.EPG_Codigo AND S2.DATA <= %s
+        )
         LEFT JOIN CAR AS C ON S.CAR_Codigo = C.CODIGO AND S.EMP_Codigo = C.EMP_Codigo
         WHERE
-            S.DATA = (
-                SELECT MAX(S2.DATA) FROM SEP AS S2
-                WHERE S2.EMP_Codigo = S.EMP_Codigo AND S2.EPG_Codigo = S.EPG_Codigo AND S2.DATA <= %s
-            )
-            AND E.EMP_Codigo = %s
+            E.EMP_Codigo = %s
             AND (E.DtRescisao IS NULL OR E.DtRescisao >= %s)
     """
     fim_do_mes = pd.Timestamp(ano, mes, 1) + pd.offsets.MonthEnd(0)

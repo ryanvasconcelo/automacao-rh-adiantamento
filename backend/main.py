@@ -1,5 +1,5 @@
 import pandas as pd
-import numpy as np
+import numpy as np  # <--- LINHA ADICIONADA
 from src.data_extraction import (
     fetch_employee_base_data,
     fetch_employee_leaves,
