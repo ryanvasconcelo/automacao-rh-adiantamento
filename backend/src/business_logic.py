@@ -219,5 +219,21 @@ def aplicar_descontos_consignado(
     df_final.loc[
         df_final["ValorLiquidoAdiantamento"] < 0, "ValorLiquidoAdiantamento"
     ] = 0
+
+    # Adiciona observação sobre o consignado
+    mask_consignado = df_final["ValorParcelaConsignado"] > 0
+
+    def append_obs(row):
+        obs = row["Observacoes"]
+        parcela = row["ValorParcelaConsignado"]
+        new_obs = f"Consignado Parcela: R${parcela:.2f}"
+        if obs and obs != "N/A":
+            return f"{obs}; {new_obs}"
+        return new_obs
+
+    df_final.loc[mask_consignado, "Observacoes"] = df_final[mask_consignado].apply(
+        append_obs, axis=1
+    )
+
     df_final.drop(columns=["PercentualDescontoConsignado"], inplace=True)
     return df_final

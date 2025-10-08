@@ -73,7 +73,7 @@ def fetch_employee_base_data(emp_codigo: str, ano: int, mes: int) -> pd.DataFram
             AND (E.DtRescisao IS NULL OR E.DtRescisao >= %s)
     """
     fim_do_mes = pd.Timestamp(ano, mes, 1) + pd.offsets.MonthEnd(0)
-    params = [fim_do_mes, emp_codigo, inicio_mes_ref]
+    params = [fim_do_mes, int(emp_codigo), inicio_mes_ref]
     with get_connection() as conn:
         return pd.read_sql(query, conn, params=params)
 
@@ -97,7 +97,7 @@ def fetch_employee_leaves(
           AND L.DTINICIAL < %s
           AND (L.DTFINAL >= %s OR L.DTFINAL IS NULL)
     """
-    params = [emp_codigo] + employee_ids + [inicio_proximo_mes, inicio_mes]
+    params = [int(emp_codigo)] + employee_ids + [inicio_proximo_mes, inicio_mes]
     with get_connection() as conn:
         df = pd.read_sql(query, conn, params=params)
         if df.empty:
@@ -131,7 +131,7 @@ def fetch_employee_loans(
           AND AnoMesDesconto = %s
         GROUP BY COT_EPG_Codigo
     """
-    params = [emp_codigo] + employee_ids + [ano_mes_competencia]
+    params = [int(emp_codigo)] + employee_ids + [ano_mes_competencia]
     with get_connection() as conn:
         return pd.read_sql(query, conn, params=params)
 
@@ -193,7 +193,7 @@ def fetch_raw_advance_payroll(emp_codigo: str, ano: int, mes: int) -> pd.DataFra
             AND convert(numeric(15,2),isnull(S.VALOR,0) * (isnull(S.PERCENTUALADIANT,0)/100)) > 0
     """
     inicio_mes_ref = f"{ano}-{mes:02d}-01"
-    params = [fim_do_mes, emp_codigo, inicio_mes_ref]
+    params = [fim_do_mes, int(emp_codigo), inicio_mes_ref]
 
     with get_connection() as conn:
         df = pd.read_sql(query, conn, params=params)

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Search, Download, CheckSquare, Square, AlertCircle, CheckCircle, TrendingDown, XCircle } from 'lucide-react';
-
+import logoProjecont from './assets/logoProjecont.jpeg';
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
 const App = () => {
@@ -119,6 +119,15 @@ const App = () => {
     setSelectedRows(newSelected);
   };
 
+  const handleSelectAll = () => {
+    if (selectedRows.size === filteredData.length) {
+      setSelectedRows(new Set());
+    } else {
+      const allVisibleIds = new Set(filteredData.map(row => row.matricula));
+      setSelectedRows(allVisibleIds);
+    }
+  };
+
   const getRowColor = (analise) => {
     if (analise.includes('Inconsistência Grave')) return 'bg-red-50 hover:bg-red-100';
     if (analise.includes('Divergência de valor')) return 'bg-amber-50 hover:bg-amber-100';
@@ -147,7 +156,7 @@ const App = () => {
     <div className="min-h-screen bg-gray-50 font-sans">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4"><div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">RH</div><h1 className="text-xl font-semibold text-gray-900">Robo Auditor RH - Projecont</h1></div>
+          <div className="flex items-center gap-4"><img src={logoProjecont} alt="" className='w-10 h-10 rounded-md' /><h1 className="text-xl font-semibold text-gray-900">Robo Auditor RH - Projecont</h1></div>
         </div>
       </header>
 
@@ -193,7 +202,7 @@ const App = () => {
 
               <div className="max-h-[600px] overflow-y-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50 sticky top-0"><tr><th className="px-6 py-3 w-12"></th><th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Matrícula</th><th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Nome</th><th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Análise</th><th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase">Valor Bruto</th><th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase">Valor do RH</th><th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Observações</th></tr></thead>
+                  <thead className="bg-gray-50 sticky top-0"><tr><th className="px-6 py-3 w-12"><input type="checkbox" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" onChange={handleSelectAll} checked={filteredData.length > 0 && selectedRows.size === filteredData.length} /></th><th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Matrícula</th><th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Nome</th><th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Análise</th><th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase">Valor Bruto</th><th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase">Valor do RH</th><th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Observações</th></tr></thead>
                   <tbody className="divide-y divide-gray-200">
                     {filteredData.map((row) => (
                       <tr key={row.matricula} className={`${getRowColor(row.analise)}`}>
