@@ -182,6 +182,12 @@ def processar_regras(
 
 
 # ATUALIZAÇÃO: Função agora recebe 'rule'
+# Em src/business_logic.py
+
+# (O resto do arquivo, incluindo processar_regras, permanece o mesmo)
+
+
+# --- FUNÇÃO MODIFICADA ---
 def aplicar_descontos_consignado(
     df_calculado: pd.DataFrame, rule: CompanyRule
 ) -> pd.DataFrame:
@@ -190,7 +196,7 @@ def aplicar_descontos_consignado(
     df_final["SalarioContratual"] = df_final["SalarioContratual"].fillna(0.0)
     df_final["ValorFixoAdiant"] = df_final["ValorFixoAdiant"].fillna(0.0)
 
-    df_final["PercentualDescontoConsignado"] = 0.40
+    df_final["PercentualDescontoConsignado"] = rule.base.policy.consignado_provision_pct
     mask_valor_fixo = df_final["ValorFixoAdiant"] > 0
     salario_base = df_final.loc[mask_valor_fixo, "SalarioContratual"]
     adiantamento_fixo = df_final.loc[mask_valor_fixo, "ValorFixoAdiant"]
@@ -203,11 +209,19 @@ def aplicar_descontos_consignado(
         percentual_arredondado
     )
 
+    # NOVO: Adiciona uma coluna com o percentual formatado para a observação
+    df_final["PercentualObservacao"] = (
+        df_final["PercentualDescontoConsignado"] * 100
+    ).map("{:,.0f}%".format)
+
     valor_desconto = (
         df_final["ValorParcelaConsignado"] * df_final["PercentualDescontoConsignado"]
     )
 
-    # ATUALIZAÇÃO: Arredondamento agora é condicional
+    # Modificação para lidar com a regra da BEL MICRO diretamente
+    if rule.overrides.get("consignado_provision_pct") == 0.0:
+        valor_desconto[:] = 0.0
+
     if not rule.overrides.get("no_rounding", False):
         df_final["ValorDesconto"] = valor_desconto.apply(arredondar_fortes)
     else:
@@ -220,13 +234,19 @@ def aplicar_descontos_consignado(
         df_final["ValorLiquidoAdiantamento"] < 0, "ValorLiquidoAdiantamento"
     ] = 0
 
-    # Adiciona observação sobre o consignado
+    # --- MODIFICAÇÃO PRINCIPAL AQUI ---
+    # Adiciona observação sobre o consignado com mais detalhes
     mask_consignado = df_final["ValorParcelaConsignado"] > 0
 
     def append_obs(row):
         obs = row["Observacoes"]
         parcela = row["ValorParcelaConsignado"]
-        new_obs = f"Consignado Parcela: R${parcela:.2f}"
+        percentual_str = row["PercentualObservacao"]
+        desconto = row["ValorDesconto"]
+
+        # Gera a nova observação detalhada
+        new_obs = f"Consignado (Parcela: R${parcela:,.2f} | Desc: R${desconto:,.2f} de {percentual_str})"
+
         if obs and obs != "N/A":
             return f"{obs}; {new_obs}"
         return new_obs
@@ -235,5 +255,7 @@ def aplicar_descontos_consignado(
         append_obs, axis=1
     )
 
-    df_final.drop(columns=["PercentualDescontoConsignado"], inplace=True)
+    df_final.drop(
+        columns=["PercentualDescontoConsignado", "PercentualObservacao"], inplace=True
+    )  # Remove colunas auxiliares
     return df_final

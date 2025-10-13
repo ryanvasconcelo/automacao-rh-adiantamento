@@ -1,6 +1,7 @@
 # src/data_extraction.py (Versão com correção no JOIN da folha bruta)
 import pandas as pd
 from .database import get_connection
+from typing import Optional
 
 
 # NOVA FUNÇÃO DE AUDITORIA
@@ -35,6 +36,120 @@ def audit_advance_flags(emp_codigo: str) -> pd.DataFrame:
         return pd.read_sql(query, conn, params=params)
 
 
+def fetch_payroll_report_data(
+    emp_codigo: str,
+    fol_seq: int,
+    filtro_estabelecimento: str = None,
+    filtro_lotacao: str = None,
+    filtro_obra: str = None,
+) -> pd.DataFrame:
+    """
+    Busca os dados de uma folha de adiantamento já calculada no Fortes,
+    agora com a lógica de filtros completa baseada nos logs.
+    """
+
+    params = []
+
+    # --- CONSTRUÇÃO DINÂMICA DA QUERY BASEADA NOS LOGS ---
+
+    # Cláusula para Estabelecimento
+    filtro_est_sql = " AND (%s = '' OR SEP.EST_CODIGO = %s)"
+    params.extend([filtro_estabelecimento or "", filtro_estabelecimento or ""])
+
+    # Cláusula para Obra/Tomador (baseado no log da NEWEN)
+    filtro_obra_sql = ""
+    if filtro_obra:
+        filtro_obra_sql = " AND SEP.TOM_Codigo = %s"
+        params.append(filtro_obra)
+
+    # Cláusula para Lotação (baseado no log da NEWEN)
+    # Em um sistema real, teríamos que gerenciar o ID da sessão para a tabela mLOT.
+    # Para nossa automação, podemos simplificar e filtrar diretamente, o que é mais eficiente.
+    filtro_lotacao_sql = ""
+    if filtro_lotacao:
+        filtro_lotacao_sql = " AND SEP.LOT_CODIGO = %s"
+        params.append(filtro_lotacao)
+
+    # Adiciona os parâmetros principais no início da lista
+    params.insert(0, fol_seq)
+    params.insert(0, int(emp_codigo))
+
+    query_principal = f"""
+        SELECT 
+            EFO.EPG_CODIGO AS Matricula,
+            EPG.NOME AS Nome,
+            SCAR1.NOME AS Cargo,
+            SEP.VALOR AS SalarioContratual,
+            EFPADIANT.VALOR AS ValorAdiantamento,
+            EFPBASE.VALOR AS BaseCalculo,
+            LOT.NOME AS Lotacao,
+            SEP.EST_CODIGO AS EstabelecimentoCodigo,
+            SEP.TOM_CODIGO AS ObraCodigo,
+            SEP.LOT_CODIGO AS LotacaoCodigo
+        FROM FOL
+        LEFT JOIN EFO ON FOL.EMP_CODIGO = EFO.EMP_CODIGO AND FOL.SEQ = EFO.FOL_SEQ
+        LEFT JOIN EPG ON EFO.EMP_CODIGO = EPG.EMP_CODIGO AND EFO.EPG_CODIGO = EPG.CODIGO
+        LEFT JOIN EFP EFPADIANT ON EFO.EMP_CODIGO = EFPADIANT.EMP_CODIGO AND EFO.FOL_SEQ = EFPADIANT.EFO_FOL_SEQ AND EFO.EPG_CODIGO = EFPADIANT.EFO_EPG_CODIGO AND EFPADIANT.EVE_CODIGO = '001'
+        LEFT JOIN EFP EFPBASE ON EFO.EMP_CODIGO = EFPBASE.EMP_CODIGO AND EFO.FOL_SEQ = EFPBASE.EFO_FOL_SEQ AND EFO.EPG_CODIGO = EFPBASE.EFO_EPG_CODIGO AND EFPBASE.EVE_CODIGO = '608'
+        LEFT JOIN SEP ON EFO.EMP_CODIGO = SEP.EMP_CODIGO AND EFO.EPG_CODIGO = SEP.EPG_CODIGO AND EFO.SEP_DATA = SEP.DATA
+        LEFT JOIN CAR ON CAR.EMP_CODIGO = SEP.EMP_CODIGO AND CAR.CODIGO = SEP.CAR_CODIGO
+        LEFT JOIN SCAR SCAR1 ON CAR.EMP_CODIGO = SCAR1.EMP_CODIGO AND SCAR1.CAR_CODIGO = CAR.CODIGO AND SCAR1.DATA = (
+            SELECT MAX(SCAR2.DATA) FROM SCAR SCAR2
+            WHERE SCAR2.EMP_CODIGO = SCAR1.EMP_CODIGO AND SCAR2.CAR_CODIGO = SCAR1.CAR_CODIGO AND SCAR2.DATA <= FOL.DTCALCULO
+        )
+        LEFT JOIN LOT ON SEP.EMP_CODIGO = LOT.EMP_CODIGO AND SEP.LOT_CODIGO = LOT.CODIGO
+        WHERE FOL.EMP_CODIGO = %s AND FOL.SEQ = %s
+        {filtro_est_sql}
+        {filtro_obra_sql}
+        {filtro_lotacao_sql}
+        ORDER BY EPG.NOME
+    """
+
+    # A query de eventos precisa dos mesmos filtros
+    query_eventos = f"""
+        SELECT 
+            EFO.EPG_CODIGO AS Matricula,
+            EVE.CODIGO AS EventoCodigo,
+            EVE.NOMEAPR AS EventoNome,
+            EFP.REFERENCIA AS EventoReferencia,
+            EFP.VALOR * EVE.PROVDESC AS EventoValor
+        FROM FOL
+        LEFT JOIN EFO ON FOL.EMP_CODIGO = EFO.EMP_CODIGO AND FOL.SEQ = EFO.FOL_SEQ
+        LEFT JOIN EFP ON EFO.EMP_CODIGO = EFP.EMP_CODIGO AND EFO.FOL_SEQ = EFP.EFO_FOL_SEQ AND EFO.EPG_CODIGO = EFP.EFO_EPG_CODIGO
+        LEFT JOIN EVE ON EFP.EVE_CODIGO = EVE.CODIGO AND EFP.EMP_CODIGO = EVE.EMP_CODIGO
+        LEFT JOIN SEP ON EFO.EMP_CODIGO = SEP.EMP_CODIGO AND EFO.EPG_CODIGO = SEP.EPG_CODIGO AND EFO.SEP_DATA = SEP.DATA
+        WHERE FOL.EMP_CODIGO = %s AND FOL.SEQ = %s
+        AND EFP.EVE_CODIGO <> '001'
+        AND EVE.INFPROVDESC IN ('1', '2')
+        {filtro_est_sql}
+        {filtro_obra_sql}
+        {filtro_lotacao_sql}
+        ORDER BY EFO.EPG_CODIGO, EVE.CODIGO
+    """
+
+    with get_connection() as conn:
+        df_principal = pd.read_sql(query_principal, conn, params=params)
+        if df_principal.empty:
+            return pd.DataFrame()
+
+        df_eventos = pd.read_sql(query_eventos, conn, params=params)
+
+        if not df_eventos.empty:
+            eventos_agrupados = (
+                df_eventos.groupby("Matricula")
+                .apply(lambda x: x.to_dict(orient="records"))
+                .rename("Eventos")
+            )
+            df_final = pd.merge(
+                df_principal, eventos_agrupados, on="Matricula", how="left"
+            )
+        else:
+            df_final = df_principal
+            df_final["Eventos"] = None
+
+    return df_final
+
+
 def debug_fetch_active_employee_count(emp_codigo: str, ano: int, mes: int) -> int:
     """
     DEBUG: Conta o número de funcionários ativos em EPG para um dado período.
@@ -50,7 +165,7 @@ def debug_fetch_active_employee_count(emp_codigo: str, ano: int, mes: int) -> in
     params = [emp_codigo, inicio_mes_ref]
     with get_connection() as conn:
         count_df = pd.read_sql(query, conn, params=params)
-        return count_df['count'].iloc[0] if not count_df.empty else 0
+        return count_df["count"].iloc[0] if not count_df.empty else 0
 
 
 def fetch_employee_base_data(emp_codigo: str, ano: int, mes: int) -> pd.DataFrame:
@@ -198,3 +313,162 @@ def fetch_raw_advance_payroll(emp_codigo: str, ano: int, mes: int) -> pd.DataFra
     with get_connection() as conn:
         df = pd.read_sql(query, conn, params=params)
         return df
+
+
+def get_latest_fol_seq(emp_codigo: str, ano: int, mes: int) -> Optional[int]:
+    """Busca o 'Seq' da folha de pagamento (FOL) mais recente para uma competência."""
+    ano_mes = f"{ano}{mes:02d}"
+    query = """
+        SELECT TOP 1 FOL.Seq
+        FROM FPG
+        LEFT JOIN FOL ON FPG.EMP_Codigo = FOL.EMP_Codigo AND FPG.FOL_Seq = FOL.Seq
+        WHERE FPG.EMP_Codigo = %s
+          AND FPG.AnoMes = %s
+          AND FOL.Folha = 1
+        ORDER BY FOL.ENCERRADA ASC, FPG.Sequencial DESC, FOL.Seq DESC
+    """
+    params = [emp_codigo, ano_mes]
+    with get_connection() as conn:
+        df = pd.read_sql(query, conn, params=params)
+    return int(df["Seq"].iloc[0]) if not df.empty else None
+
+
+def fetch_filters_for_company(emp_codigo: str) -> dict:
+    """Busca todas as listas de filtros para uma empresa."""
+    filters = {"estabelecimentos": [], "obras": [], "lotacoes": []}
+    with get_connection() as conn:
+        df_est = pd.read_sql(
+            "SELECT CODIGO, NOME FROM EST WHERE EMP_CODIGO = %s ORDER BY NOME",
+            conn,
+            params=[emp_codigo],
+        )
+        if not df_est.empty:
+            filters["estabelecimentos"] = df_est.to_dict(orient="records")
+        df_obr = pd.read_sql(
+            "SELECT CODIGO, NOME FROM TOM WHERE EMP_CODIGO = %s ORDER BY NOME",
+            conn,
+            params=[emp_codigo],
+        )
+        if not df_obr.empty:
+            filters["obras"] = df_obr.to_dict(orient="records")
+        df_lot = pd.read_sql(
+            "SELECT CODIGO, NOME FROM LOT WHERE EMP_CODIGO = %s ORDER BY NOME",
+            conn,
+            params=[emp_codigo],
+        )
+        if not df_lot.empty:
+            filters["lotacoes"] = df_lot.to_dict(orient="records")
+    return filters
+
+
+# --- NOVAS FUNÇÕES DE BUSCA DE DADOS PARA CADA RELATÓRIO ---
+def fetch_listagem_adiantamento_data(
+    emp_codigo: str, fol_seq: int, **kwargs
+) -> pd.DataFrame:
+    """Busca dados para o relatório 'Listagem de Adiantamento'."""
+    params = [int(emp_codigo), fol_seq]
+    filtro_est_sql = " AND (%s = '' OR SEP.EST_CODIGO = %s)"
+    params.extend(
+        [
+            kwargs.get("filtro_estabelecimento") or "",
+            kwargs.get("filtro_estabelecimento") or "",
+        ]
+    )
+    # Adicione outros filtros conforme necessário
+
+    query = f"""
+        SELECT 
+            EFO.EPG_CODIGO AS Matricula, EPG.NOME AS Nome, SCAR1.NOME AS Cargo,
+            SEP.VALOR AS SalarioContratual, EFPADIANT.VALOR AS ValorAdiantamento,
+            EFPBASE.VALOR AS BaseCalculo, LOT.NOME AS Lotacao, SEP.EST_CODIGO AS EstabelecimentoCodigo,
+            SEP.TOM_CODIGO AS ObraCodigo, SEP.LOT_CODIGO AS LotacaoCodigo
+        FROM FOL
+        LEFT JOIN EFO ON FOL.EMP_CODIGO = EFO.EMP_CODIGO AND FOL.SEQ = EFO.FOL_SEQ
+        LEFT JOIN EPG ON EFO.EMP_CODIGO = EPG.EMP_CODIGO AND EFO.EPG_CODIGO = EPG.CODIGO
+        LEFT JOIN EFP EFPADIANT ON EFO.EMP_CODIGO = EFPADIANT.EMP_CODIGO AND EFO.FOL_SEQ = EFPADIANT.EFO_FOL_SEQ AND EFO.EPG_CODIGO = EFPADIANT.EFO_EPG_CODIGO AND EFPADIANT.EVE_CODIGO = '001'
+        LEFT JOIN EFP EFPBASE ON EFO.EMP_CODIGO = EFPBASE.EMP_CODIGO AND EFO.FOL_SEQ = EFPBASE.EFO_FOL_SEQ AND EFO.EPG_CODIGO = EFPBASE.EFO_EPG_CODIGO AND EFPBASE.EVE_CODIGO = '608'
+        LEFT JOIN SEP ON EFO.EMP_CODIGO = SEP.EMP_CODIGO AND EFO.EPG_CODIGO = SEP.EPG_CODIGO AND EFO.SEP_DATA = SEP.DATA
+        LEFT JOIN CAR ON CAR.EMP_CODIGO = SEP.EMP_CODIGO AND CAR.CODIGO = SEP.CAR_CODIGO
+        LEFT JOIN SCAR SCAR1 ON CAR.EMP_CODIGO = SCAR1.EMP_CODIGO AND SCAR1.CAR_CODIGO = CAR.CODIGO AND SCAR1.DATA = (
+            SELECT MAX(SCAR2.DATA) FROM SCAR SCAR2
+            WHERE SCAR2.EMP_CODIGO = SCAR1.EMP_CODIGO AND SCAR2.CAR_CODIGO = SCAR1.CAR_CODIGO AND SCAR2.DATA <= FOL.DTCALCULO
+        )
+        LEFT JOIN LOT ON SEP.EMP_CODIGO = LOT.EMP_CODIGO AND SEP.LOT_CODIGO = LOT.CODIGO
+        WHERE FOL.EMP_CODIGO = %s AND FOL.SEQ = %s
+        {filtro_est_sql}
+        ORDER BY EPG.NOME
+    """
+    with get_connection() as conn:
+        return pd.read_sql(query, conn, params=params)
+
+
+def fetch_recibo_pagamento_data(
+    emp_codigo: str, fol_seq: int, **kwargs
+) -> pd.DataFrame:
+    """Busca dados para o 'Recibo de Pagamento', incluindo dados bancários."""
+    params = [int(emp_codigo), fol_seq]
+    filtro_est_sql = " AND (%s = '' OR SEP.EST_CODIGO = %s)"
+    params.extend(
+        [
+            kwargs.get("filtro_estabelecimento") or "",
+            kwargs.get("filtro_estabelecimento") or "",
+        ]
+    )
+
+    query = f"""
+        SELECT 
+            BAN.NOME AS Banco, AGB.NOME AS Agencia, EPG.CONTACORRENTE AS ContaCorrente,
+            EFO.EPG_CODIGO AS Matricula, EPG.NOME AS Nome, EPG.ADMISSAODATA AS Admissao,
+            SCAR1.NOME AS Cargo, SEP.VALOR AS Salario, EFP.VALOR AS ValorReceber,
+            EFP.REFERENCIA AS Referencia, LOT.NOME AS Lotacao, EST.NOME AS Estabelecimento
+        FROM FOL
+        LEFT JOIN EFO ON FOL.EMP_CODIGO = EFO.EMP_CODIGO AND FOL.SEQ = EFO.FOL_SEQ
+        LEFT JOIN EPG ON EFO.EMP_CODIGO = EPG.EMP_CODIGO AND EFO.EPG_CODIGO = EPG.CODIGO
+        LEFT JOIN SEP ON EFO.EMP_CODIGO = SEP.EMP_CODIGO AND EFO.EPG_CODIGO = SEP.EPG_CODIGO AND EFO.SEP_DATA = SEP.DATA
+        LEFT JOIN EST ON SEP.EMP_CODIGO = EST.EMP_CODIGO AND SEP.EST_CODIGO = EST.CODIGO
+        LEFT JOIN CAR ON CAR.EMP_CODIGO = SEP.EMP_CODIGO AND CAR.CODIGO = SEP.CAR_CODIGO
+        LEFT JOIN SCAR SCAR1 ON CAR.EMP_CODIGO = SCAR1.EMP_CODIGO AND SCAR1.CAR_CODIGO = CAR.CODIGO AND SCAR1.DATA = (
+            SELECT MAX(SCAR2.DATA) FROM SCAR SCAR2 WHERE SCAR2.EMP_CODIGO = SCAR1.EMP_CODIGO AND SCAR2.CAR_CODIGO = SCAR1.CAR_CODIGO AND SCAR2.DATA <= FOL.DTCALCULO
+        )
+        LEFT JOIN LOT ON SEP.EMP_CODIGO = LOT.EMP_CODIGO AND SEP.LOT_CODIGO = LOT.CODIGO
+        LEFT JOIN BAN ON EPG.BAN_CODIGO = BAN.CODIGO
+        LEFT JOIN AGB ON EPG.BAN_CODIGO = AGB.BAN_CODIGO AND EPG.AGB_CODIGO = AGB.CODIGO
+        LEFT JOIN EFP ON EFO.EMP_CODIGO = EFP.EMP_CODIGO AND EFO.FOL_SEQ = EFP.EFO_FOL_SEQ AND EFO.EPG_CODIGO = EFP.EFO_EPG_CODIGO
+        WHERE FOL.EMP_CODIGO = %s AND FOL.SEQ = %s AND EFP.EVE_CODIGO = '001'
+        {filtro_est_sql}
+        ORDER BY EPG.NOME
+    """
+    with get_connection() as conn:
+        return pd.read_sql(query, conn, params=params)
+
+
+def fetch_folha_sintetica_data(emp_codigo: str, fol_seq: int, **kwargs) -> pd.DataFrame:
+    """Busca dados agregados para a 'Folha Sintética'."""
+    params = [int(emp_codigo), fol_seq]
+    filtro_est_sql = " AND (%s = '' OR SEP.EST_CODIGO = %s)"
+    params.extend(
+        [
+            kwargs.get("filtro_estabelecimento") or "",
+            kwargs.get("filtro_estabelecimento") or "",
+        ]
+    )
+
+    query = f"""
+        SELECT 
+            EST.NOME AS Estabelecimento, LOT.NOME AS Lotacao,
+            EVE.CODIGO AS EventoCodigo, EVE.NOMEAPR AS EventoNome,
+            SUM(EFP.VALOR * EVE.PROVDESC) AS ValorTotal
+        FROM FOL
+        LEFT JOIN EFO ON FOL.EMP_CODIGO = EFO.EMP_CODIGO AND FOL.SEQ = EFO.FOL_SEQ
+        LEFT JOIN EFP ON EFO.EMP_CODIGO = EFP.EMP_CODIGO AND EFO.FOL_SEQ = EFP.EFO_FOL_SEQ AND EFO.EPG_CODIGO = EFP.EFO_EPG_CODIGO
+        LEFT JOIN EVE ON EFP.EMP_CODIGO = EVE.EMP_CODIGO AND EFP.EVE_CODIGO = EVE.CODIGO
+        LEFT JOIN SEP ON EFO.EMP_CODIGO = SEP.EMP_CODIGO AND EFO.EPG_CODIGO = SEP.EPG_CODIGO AND EFO.SEP_DATA = SEP.DATA
+        LEFT JOIN EST ON SEP.EMP_CODIGO = EST.EMP_CODIGO AND SEP.EST_CODIGO = EST.CODIGO
+        LEFT JOIN LOT ON SEP.EMP_CODIGO = LOT.EMP_CODIGO AND SEP.LOT_CODIGO = LOT.CODIGO
+        WHERE FOL.EMP_CODIGO = %s AND FOL.SEQ = %s
+        {filtro_est_sql}
+        GROUP BY EST.NOME, LOT.NOME, EVE.CODIGO, EVE.NOMEAPR
+        ORDER BY EST.NOME, LOT.NOME, EVE.CODIGO
+    """
+    with get_connection() as conn:
+        return pd.read_sql(query, conn, params=params)
