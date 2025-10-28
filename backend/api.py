@@ -1,4 +1,4 @@
-# api.py (Versão Final com todos os endpoints)
+# api.py (Versão com Persistência JSON para Status do Consignado)
 
 import os
 import io
@@ -6,12 +6,14 @@ import shutil
 import zipfile
 import pandas as pd
 import numpy as np
+import json  # <--- ADICIONADO
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple  # <--- ADICIONADO Tuple
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +22,16 @@ from src.rules_catalog import CATALOG, get_company_rule
 from src.data_extraction import (
     fetch_all_companies,
     fetch_filters_for_company,
-    fetch_payroll_report_data,
     get_latest_fol_seq,
     fetch_listagem_adiantamento_data,
     fetch_recibo_pagamento_data,
     fetch_folha_sintetica_data,
 )
+from src.file_generator import generate_and_zip_reports
 
-app = FastAPI(title="RH Tools API - Auditor de Adiantamento", version="2.0.0")
+app = FastAPI(
+    title="RH Tools API - Auditor de Adiantamento", version="2.1.0"
+)  # Versão incrementada
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,9 +41,55 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- MODELOS Pydantic ---
+# --- ARMAZENAMENTO DE STATUS (Agora com JSON) ---
+STATUS_FILE_PATH = "consignado_status.json"
+
+# Tipo para a chave do dicionário (Ano, Mês, EmpID_str)
+StatusKey = Tuple[int, int, str]
+# Tipo para o dicionário de status
+ConsignadoStatusDict = Dict[str, bool]  # Chave será string no JSON: "ano_mes_empId"
 
 
+def _make_status_key_str(year: int, month: int, emp_id: str) -> str:
+    """Cria a chave string para o JSON."""
+    return f"{year}_{month:02d}_{emp_id}"
+
+
+def load_status() -> ConsignadoStatusDict:
+    """Carrega o status do arquivo JSON."""
+    if not os.path.exists(STATUS_FILE_PATH):
+        return {}
+    try:
+        with open(STATUS_FILE_PATH, "r") as f:
+            # Carrega diretamente como Dict[str, bool]
+            data = json.load(f)
+            # Validação simples (opcional, mas bom ter)
+            if not isinstance(data, dict):
+                logger.warning(f"Arquivo {STATUS_FILE_PATH} corrompido. Ignorando.")
+                return {}
+            return data
+    except (json.JSONDecodeError, IOError) as e:
+        logger.error(
+            f"Erro ao carregar {STATUS_FILE_PATH}: {e}. Retornando status vazio."
+        )
+        return {}
+
+
+def save_status(status_dict: ConsignadoStatusDict):
+    """Salva o status no arquivo JSON."""
+    try:
+        with open(STATUS_FILE_PATH, "w") as f:
+            json.dump(status_dict, f, indent=4)
+    except IOError as e:
+        logger.error(f"Erro ao salvar {STATUS_FILE_PATH}: {e}")
+
+
+# Carrega o status inicial ao iniciar a aplicação
+consignado_import_status = load_status()
+
+
+# --- MODELOS Pydantic (sem alterações) ---
+# ... (AuditRequest, DayAuditRequest, etc.) ...
 class AuditRequest(BaseModel):
     catalog_code: str
     month: int
@@ -59,29 +109,28 @@ class CorrectedAuditRow(BaseModel):
     empresaNome: str
 
 
-class ApplyCorrectionsRequest(BaseModel):
-    empresaCodigo: int  # Mudou de str para int
-    month: int
-    year: int
-    selectedMatriculas: List[str]
-    fortes_user: Optional[str] = None
-    fortes_password_hash: Optional[int] = None
-    auto_recalc: bool = False
-
-
 class ReportGenerationRequest(BaseModel):
     month: int
     year: int
     data: List[CorrectedAuditRow]
 
 
-# --- ENDPOINTS ANTIGOS (Mantidos para referência ou uso futuro) ---
+class RPAImportRequest(BaseModel):
+    year: int
+    month: int
+    company_codes: Optional[List[str]] = None
+
+
+# --- ENDPOINTS ---
 
 
 @app.get("/companies/grouped")
 def get_companies_grouped():
+    # ... (sem alterações)
     grouped_companies: Dict[str, List[Dict[str, str]]] = {"15": [], "20": []}
     for code, rule in CATALOG.items():
+        if not rule.base or not hasattr(rule.base, "window"):
+            continue
         pay_day = str(rule.base.window.pay_day)
         if pay_day in grouped_companies:
             grouped_companies[pay_day].append({"code": code, "name": rule.name})
@@ -92,6 +141,7 @@ def get_companies_grouped():
 
 @app.post("/audit")
 def run_single_audit(request: AuditRequest):
+    # ... (sem alterações)
     try:
         rule = get_company_rule(request.catalog_code)
         if not rule.emp_id:
@@ -99,15 +149,12 @@ def run_single_audit(request: AuditRequest):
                 status_code=404,
                 detail=f"Empresa '{request.catalog_code}' não tem um ID mapeado.",
             )
-
         df_result = main.run(
             empresa_codigo=str(rule.emp_id),
             empresa_id_catalogo=request.catalog_code,
             ano=request.year,
             mes=request.month,
         )
-
-        # ... (formatação do resultado como antes)
         df_result.rename(
             columns={
                 "ValorBrutoFortes": "valorBruto",
@@ -118,51 +165,63 @@ def run_single_audit(request: AuditRequest):
         )
         df_result_filled = df_result.replace({pd.NaT: None, np.nan: None})
         return df_result_filled.to_dict(orient="records")
-
     except Exception as e:
+        logger.error(f"Erro em /audit para {request.catalog_code}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erro interno: {e}")
-
-
-# --- NOVOS ENDPOINTS DO FLUXO ---
 
 
 @app.post("/audit/day")
 async def run_day_audit(request: DayAuditRequest):
-    """Executa a auditoria para todas as empresas de um dia de pagamento específico."""
+    """Executa a auditoria e inclui o status de importação do consignado (lido do JSON)."""
     target_day = str(request.day)
-    companies_to_audit = [
+    companies_to_audit = [  # ... (lógica de filtro sem alterações)
         (code, rule)
         for code, rule in CATALOG.items()
-        if str(rule.base.window.pay_day) == target_day and rule.emp_id
+        if rule.base
+        and hasattr(rule.base, "window")
+        and str(rule.base.window.pay_day) == target_day
+        and rule.emp_id
     ]
-
     all_results = []
+
+    # Recarrega o status do arquivo caso tenha sido modificado por outra requisição
+    current_status = load_status()
+
     for code, rule in companies_to_audit:
         try:
+            print(
+                f"--- INICIANDO AUDITORIA PARA EMPRESA {rule.emp_id} ({rule.name}) ..."
+            )
             df_company_result = main.run(
                 empresa_codigo=str(rule.emp_id),
                 empresa_id_catalogo=code,
                 ano=request.year,
                 mes=request.month,
             )
-
-            # Adiciona informações da empresa a cada linha
             df_company_result["empresaNome"] = rule.name
             df_company_result["empresaCodigo"] = rule.emp_id
             df_company_result["empresaCode"] = rule.code
 
+            # --- MODIFICAÇÃO AQUI: Usa a chave string e o status carregado ---
+            status_key_str = _make_status_key_str(
+                request.year, request.month, str(rule.emp_id)
+            )
+            df_company_result["consignadoImportado"] = current_status.get(
+                status_key_str, False
+            )
+            # -----------------------------------------------------------------
+
             all_results.append(df_company_result)
+            print(f"--- PROCESSO DE AUDITORIA CONCLUÍDO PARA {rule.name} ---")
         except Exception as e:
+            logger.error(f"Erro ao auditar a empresa {rule.name}: {e}", exc_info=True)
             print(f"Erro ao auditar a empresa {rule.name}: {e}")
-            # Pular empresa com erro, mas continuar o lote
             continue
 
     if not all_results:
         return []
-
+    # ... (concatenação, rename e retorno sem alterações)
     df_final = pd.concat(all_results, ignore_index=True)
-
-    # Renomeia colunas para o frontend
     df_final.rename(
         columns={
             "Matricula": "matricula",
@@ -178,304 +237,178 @@ async def run_day_audit(request: DayAuditRequest):
         },
         inplace=True,
     )
-
     df_final_filled = df_final.replace({pd.NaT: None, np.nan: None})
     return df_final_filled.to_dict(orient="records")
 
 
-@app.post("/corrections/apply")
-async def apply_corrections(request: ApplyCorrectionsRequest):
-    """
-    Aplica correções REAIS na tabela SEP do Fortes.
+@app.post("/rpa/import-consignments")
+async def trigger_rpa_import_consignments(request: RPAImportRequest):
+    """Aciona (simula) o RPA e atualiza o status no arquivo JSON."""
+    print(
+        f"Recebida solicitação de importação de consignados para {request.month}/{request.year}"
+    )
 
-    ⚠️ ATENÇÃO: Esta operação modifica o banco de dados do Fortes!
-    """
-    try:
-        from src.workflow_manager import AdiantamentoWorkflow
+    # Carrega o status mais recente do arquivo
+    current_status = load_status()
+    empresas_para_importar = []
 
-        # Converte para string para usar no workflow
-        empresa_codigo_str = str(request.empresaCodigo)
-
-        # Busca o código do catálogo pela empresa
-        catalog_code = None
+    if request.company_codes:
+        empresas_para_importar = [
+            code for code in request.company_codes if CATALOG.get(code)
+        ]
+        print(f"Empresas especificadas: {empresas_para_importar}")
+    else:
+        print("Buscando empresas com consignado pendente...")
         for code, rule in CATALOG.items():
-            if rule.emp_id and str(rule.emp_id) == empresa_codigo_str:
-                catalog_code = code
-                break
-
-        if not catalog_code:
-            # Lista empresas disponíveis para debug
-            available_companies = {
-                code: rule.emp_id for code, rule in CATALOG.items() if rule.emp_id
-            }
-            raise HTTPException(
-                status_code=404,
-                detail=f"Empresa {request.empresaCodigo} não encontrada no catálogo. Disponíveis: {available_companies}",
+            if not rule.emp_id:
+                continue
+            status_key_str = _make_status_key_str(
+                request.year, request.month, str(rule.emp_id)
             )
+            if not current_status.get(
+                status_key_str, False
+            ):  # Verifica no status carregado
+                empresas_para_importar.append(code)
+        print(f"Empresas pendentes encontradas: {empresas_para_importar}")
 
-        # Cria workflow usando o código do catálogo
-        workflow = AdiantamentoWorkflow(
-            catalog_code,
-            request.year,
-            request.month,
-        )
-
-        # Executa o fluxo completo com correções
-        result = workflow.executar_fluxo_completo(
-            aplicar_correcoes=True,
-            confirmado=True,
-            fortes_user=request.fortes_user or os.getenv("FORTES_USER"),
-            fortes_password_hash=request.fortes_password_hash
-            or int(os.getenv("FORTES_PASSWORD_HASH", "0")),
-            auto_recalc=request.auto_recalc,
-        )
-
-        # Verifica o tipo de erro
-        if result.status.value == "erro":
-            # Verifica se é erro de permissão
-            if result.falhas_correcao and all(
-                "permiss" in str(f.get("erro", "")).lower()
-                for f in result.falhas_correcao
-            ):
-                # Todas as falhas são de permissão
-                raise HTTPException(
-                    status_code=403,  # Forbidden
-                    detail={
-                        "error": "Permissão negada para UPDATE na tabela SEP",
-                        "message": "O usuário do banco de dados não tem permissão para modificar a tabela SEP.",
-                        "solution": [
-                            "Execute no SQL Server (como DBA):",
-                            "",
-                            "USE AC;",
-                            "GO",
-                            "GRANT UPDATE ON dbo.SEP TO [seu_usuario];",
-                            "GO",
-                            "",
-                            "Ou configure um usuário com permissões adequadas no arquivo .env",
-                        ],
-                        "affected_employees": len(result.falhas_correcao),
-                        "technical_details": result.mensagem,
-                    },
-                )
-            else:
-                # Outros tipos de erro
-                raise HTTPException(
-                    status_code=500,
-                    detail={
-                        "error": result.mensagem,
-                        "failures": result.falhas_correcao,
-                    },
-                )
-
-        # Verifica sucesso parcial (algumas correções aplicadas, outras não)
-        if result.correcoes_aplicadas == 0 and result.falhas_correcao:
-            # Nenhuma correção aplicada
-            erros_permissao = [
-                f
-                for f in result.falhas_correcao
-                if "permiss" in str(f.get("erro", "")).lower()
-            ]
-
-            if len(erros_permissao) == len(result.falhas_correcao):
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "error": "Permissão negada para UPDATE na tabela SEP",
-                        "solution": [
-                            "USE AC;",
-                            "GRANT UPDATE ON dbo.SEP TO [seu_usuario];",
-                        ],
-                        "affected_employees": len(result.falhas_correcao),
-                    },
-                )
-            else:
-                raise HTTPException(
-                    status_code=500,
-                    detail={
-                        "error": "Nenhuma correção aplicada",
-                        "failures": result.falhas_correcao,
-                    },
-                )
-
-        # Sucesso (total ou parcial)
-        response_data = {
-            "success": True,
-            "message": result.mensagem,
-            "correcoes_aplicadas": result.correcoes_aplicadas,
-            "caminho_pdf": result.caminho_pdf,
-            "caminho_csv": result.caminho_csv,
+    if not empresas_para_importar:
+        return {
+            "status": "success",
+            "message": "Nenhuma empresa encontrada para importação.",
         }
 
-        # Adiciona avisos se houve falhas parciais
-        if result.falhas_correcao:
-            response_data["warning"] = (
-                f"{len(result.falhas_correcao)} funcionários falharam"
+    # --- SIMULAÇÃO DA EXECUÇÃO DO RPA ---
+    print(">>> Iniciando SIMULAÇÃO do RPA de importação...")
+    time.sleep(5)
+    print(">>> SIMULAÇÃO do RPA concluída com sucesso.")
+    # ------------------------------------
+
+    empresas_com_sucesso = empresas_para_importar  # Simulação assume sucesso
+
+    # Atualiza o status no dicionário carregado
+    for code in empresas_com_sucesso:
+        rule = CATALOG.get(code)
+        if rule and rule.emp_id:
+            status_key_str = _make_status_key_str(
+                request.year, request.month, str(rule.emp_id)
             )
-            response_data["falhas"] = result.falhas_correcao
+            current_status[status_key_str] = True  # Atualiza o dicionário
+            print(f"Status atualizado para importado: {rule.name}")
 
-        return response_data
+    # Salva o dicionário atualizado de volta no arquivo JSON
+    save_status(current_status)  # <--- SALVA NO ARQUIVO
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-
-        traceback.print_exc()
-
-        # Verifica se é erro de permissão na exceção genérica
-        error_msg = str(e).lower()
-        if "permission" in error_msg or "permiss" in error_msg:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error": "Permissão negada",
-                    "message": str(e),
-                    "solution": [
-                        "USE AC;",
-                        "GRANT UPDATE ON dbo.SEP TO [seu_usuario];",
-                    ],
-                },
-            )
-
-        raise HTTPException(
-            status_code=500, detail=f"Erro ao aplicar correções: {str(e)}"
-        )
+    return {
+        "status": "success",
+        "message": f"Importação de consignados (simulada) concluída com sucesso para {len(empresas_com_sucesso)} empresa(s).",
+    }
 
 
 @app.post("/reports/generate")
-async def generate_reports(request: ReportGenerationRequest):
-    """Gera os relatórios, chamando a função de busca de dados correta para cada tipo."""
+async def generate_reports_endpoint(request: ReportGenerationRequest):
+    # ... (este endpoint permanece como estava, chamando generate_and_zip_reports)
+    try:
+        empresas_a_processar = {}
+        for row in request.data:
+            if row.empresaCodigo not in empresas_a_processar:
+                empresas_a_processar[row.empresaCodigo] = {
+                    "nome": row.empresaNome,
+                    "funcionarios": [],
+                }
+            empresas_a_processar[row.empresaCodigo]["funcionarios"].append(row)
 
-    empresas_a_processar = {}
-    for row in request.data:
-        if row.empresaCodigo not in empresas_a_processar:
-            empresas_a_processar[row.empresaCodigo] = {
-                "nome": row.empresaNome,
-                "funcionarios": [],
-            }
-        empresas_a_processar[row.empresaCodigo]["funcionarios"].append(row)
-
-    output_path = "relatorios_gerados"
-    if os.path.exists(output_path):
-        shutil.rmtree(output_path)
-    os.makedirs(output_path)
-
-    for emp_codigo, info in empresas_a_processar.items():
-        try:
-            print(f"Gerando relatórios para: {info['nome']}")
-            fol_seq = get_latest_fol_seq(str(emp_codigo), request.year, request.month)
-
-            if not fol_seq:
-                print(
-                    f"AVISO: Nenhuma folha de adiantamento processada encontrada para {info['nome']}. Pulando."
-                )
-                continue
-
-            print(f"  - Usando Folha ID (FOL.Seq): {fol_seq}")
-            empresa_path = os.path.join(
-                output_path,
-                f"Adiantamento {info['nome']} {request.month}-{request.year}",
-            )
-            os.makedirs(empresa_path, exist_ok=True)
-            filtros = fetch_filters_for_company(str(emp_codigo))
-
-            # --- LÓGICA DE SELEÇÃO DE FUNÇÃO ATUALIZADA ---
-            for tipo_relatorio in [
-                "Listagem de Adiantamento",
-                "Recibo de Pagamento",
-                "Folha Sintetica",
-            ]:
-                print(f"    - Gerando: {tipo_relatorio}")
-
-                # Seleciona a função de busca de dados correta
-                if tipo_relatorio == "Listagem de Adiantamento":
-                    func_busca = fetch_listagem_adiantamento_data
-                elif tipo_relatorio == "Recibo de Pagamento":
-                    func_busca = fetch_recibo_pagamento_data
-                else:  # Folha Sintetica
-                    func_busca = fetch_folha_sintetica_data
-
-                # A lógica de loop de filtros agora usa a função selecionada
-                if tipo_relatorio == "Folha Sintetica":
-                    report_data = func_busca(str(emp_codigo), fol_seq)
-                    if not report_data.empty:
-                        report_data.to_csv(
-                            os.path.join(
-                                empresa_path, "Folha Sintetica de Adiantamento.csv"
-                            ),
-                            index=False,
-                        )
-                    continue
-
-                for filtro_nome, filtro_lista in filtros.items():
-                    if not filtro_lista:
-                        continue
-
-                    filtro_path = os.path.join(empresa_path, filtro_nome.capitalize())
-                    os.makedirs(filtro_path, exist_ok=True)
-
-                    df_geral = func_busca(str(emp_codigo), fol_seq)
-                    if not df_geral.empty:
-                        df_geral.to_csv(
-                            os.path.join(filtro_path, f"{tipo_relatorio} - Geral.csv"),
-                            index=False,
-                        )
-
-                    for item in filtro_lista:
-                        filtro_kwargs = {
-                            "filtro_estabelecimento": (
-                                item["CODIGO"]
-                                if filtro_nome == "estabelecimentos"
-                                else None
-                            )
-                        }
-                        df_especifico = func_busca(
-                            str(emp_codigo), fol_seq, **filtro_kwargs
-                        )
-                        if not df_especifico.empty:
-                            file_name = (
-                                f"{tipo_relatorio} - {item['NOME']}.csv".replace(
-                                    "/", "-"
-                                )
-                            )
-                            df_especifico.to_csv(
-                                os.path.join(filtro_path, file_name), index=False
-                            )
-
-        except Exception as e:
-            print(f"ERRO CRÍTICO ao gerar relatório para a empresa {info['nome']}: {e}")
-            import traceback
-
-            traceback.print_exc()
-            continue
-
-    # --- CORREÇÃO 2: Verifica se algum arquivo foi realmente gerado ---
-    # `os.listdir` em um diretório vazio retorna uma lista vazia, que é "falsy"
-    if not os.listdir(output_path) or not any(os.scandir(output_path)):
-        # Limpa a pasta de saída vazia
-        shutil.rmtree(output_path)
-        raise HTTPException(
-            status_code=404,
-            detail="Nenhum dado de relatório encontrado para as empresas e período selecionados.",
+        zip_buffer = generate_and_zip_reports(
+            empresas_a_processar, request.month, request.year
         )
 
-    # Compacta a pasta de saída em um arquivo ZIP em memória
-    zip_buffer = io.BytesIO()
-    # --- CORREÇÃO 1: Modo 'w' (write) em vez de 'a' (append) ---
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED, False) as zip_file:
-        for root, _, files in os.walk(output_path):
-            for file in files:
-                full_path = os.path.join(root, file)
-                archive_path = os.path.relpath(full_path, output_path)
-                zip_file.write(full_path, archive_path)
+        if zip_buffer is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Nenhum dado de relatório encontrado para as empresas e período selecionados.",
+            )
 
-    shutil.rmtree(output_path)
-    zip_buffer.seek(0)
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/x-zip-compressed",
+            headers={
+                "Content-Disposition": f"attachment; filename=Relatorios_Adiantamento_{request.month}-{request.year}.zip"
+            },
+        )
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Erro crítico em /reports/generate: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Erro interno ao gerar relatórios: {e}"
+        )
 
-    return StreamingResponse(
-        zip_buffer,
-        media_type="application/x-zip-compressed",
-        headers={
-            "Content-Disposition": f"attachment; filename=Relatorios_Adiantamento_{request.month}-{request.year}.zip"
-        },
+
+# (Adicione aqui o if __name__ == "__main__": uvicorn.run(...) se você o utiliza)
+
+
+# --- Modelos Pydantic Adicionais (se não existirem) ---
+class RPAImportRequest(BaseModel):
+    year: int
+    month: int
+    company_codes: Optional[List[str]] = (
+        None  # Lista de códigos do catálogo ou None para "todos pendentes"
     )
+
+
+# --- Novo Endpoint ---
+@app.post("/rpa/import-consignments")
+async def trigger_rpa_import_consignments(request: RPAImportRequest):
+    """
+    Aciona (atualmente simula) o RPA para importar consignados e atualiza o status.
+    """
+    print(
+        f"Recebida solicitação de importação de consignados para {request.month}/{request.year}"
+    )
+
+    empresas_para_importar = []
+
+    if request.company_codes:  # Se uma lista específica foi enviada
+        empresas_para_importar = [
+            code for code in request.company_codes if CATALOG.get(code)
+        ]
+        print(f"Empresas especificadas: {empresas_para_importar}")
+    else:  # Se for para importar "todos pendentes"
+        print("Buscando empresas com consignado pendente...")
+        for code, rule in CATALOG.items():
+            if not rule.emp_id:
+                continue  # Pula empresas sem ID mapeado
+            status_key = (request.year, request.month, str(rule.emp_id))
+            if not consignado_import_status.get(status_key, False):
+                empresas_para_importar.append(code)
+        print(f"Empresas pendentes encontradas: {empresas_para_importar}")
+
+    if not empresas_para_importar:
+        return {
+            "status": "success",
+            "message": "Nenhuma empresa encontrada para importação.",
+        }
+
+    # --- SIMULAÇÃO DA EXECUÇÃO DO RPA ---
+    print(">>> Iniciando SIMULAÇÃO do RPA de importação...")
+    import time
+
+    time.sleep(5)  # Simula o tempo que o RPA levaria
+    print(">>> SIMULAÇÃO do RPA concluída com sucesso.")
+    # ------------------------------------
+
+    # --- Em um cenário real, o script RPA retornaria quais empresas tiveram sucesso ---
+    # Para a simulação, vamos assumir que todas tiveram sucesso
+    empresas_com_sucesso = empresas_para_importar
+
+    # Atualiza o status no dicionário em memória
+    for code in empresas_com_sucesso:
+        rule = CATALOG.get(code)
+        if rule and rule.emp_id:
+            status_key = (request.year, request.month, str(rule.emp_id))
+            consignado_import_status[status_key] = True
+            print(f"Status atualizado para importado: {rule.name}")
+
+    return {
+        "status": "success",
+        "message": f"Importação de consignados (simulada) concluída com sucesso para {len(empresas_com_sucesso)} empresa(s).",
+    }
