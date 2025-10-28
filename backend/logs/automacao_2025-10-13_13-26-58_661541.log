@@ -1,0 +1,28 @@
+2025-10-13 13:26:58 | INFO     | src.workflow_manager:executar_calculo:90 - Iniciando cálculo para PHYSIO VIDA - HYK SERVICOS DE FISIOTERAPIA E COMERCIO DE ARTIGOS ESPORTIVOS LTDA - 10/2025
+2025-10-13 13:26:58 | INFO     | src.workflow_manager:executar_calculo:101 - Encontrados 17 funcionários
+2025-10-13 13:26:58 | SUCCESS  | src.workflow_manager:executar_calculo:130 - Cálculo concluído: 1 funcionários elegíveis, R$ 1,083.00
+2025-10-13 13:26:59 | INFO     | src.workflow_manager:comparar_com_fortes:172 - Folha encontrada: SEQ 848
+2025-10-13 13:27:00 | WARNING  | src.workflow_manager:comparar_com_fortes:199 - Encontradas 17 divergências
+2025-10-13 13:27:00 | WARNING  | src.workflow_manager:aplicar_correcoes_fortes:261 - ================================================================================
+2025-10-13 13:27:00 | WARNING  | src.workflow_manager:aplicar_correcoes_fortes:262 - ⚠️ AJUSTANDO PARÂMETROS NA TABELA SEP DO FORTES ⚠️
+2025-10-13 13:27:00 | WARNING  | src.workflow_manager:aplicar_correcoes_fortes:263 - Operações SQL: UPDATE na tabela SEP (cadastro do funcionário)
+2025-10-13 13:27:00 | WARNING  | src.workflow_manager:aplicar_correcoes_fortes:264 - Tabela afetada: SEP.PERCENTUALADIANT e SEP.VALORADIANT
+2025-10-13 13:27:00 | WARNING  | src.workflow_manager:aplicar_correcoes_fortes:265 - APÓS estas alterações, você DEVE RECALCULAR a folha no Fortes!
+2025-10-13 13:27:00 | WARNING  | src.workflow_manager:aplicar_correcoes_fortes:266 - ================================================================================
+2025-10-13 13:27:00 | INFO     | src.fortes_pre_calculation:calcular_parametros_correcao:247 - Calculando parâmetros para 1 funcionários elegíveis
+2025-10-13 13:27:00 | DEBUG    | src.fortes_pre_calculation:calcular_parametros_correcao:267 - Matrícula 000043: 50.02% (31.0 dias)
+2025-10-13 13:27:00 | INFO     | src.workflow_manager:aplicar_correcoes_fortes:271 - Parâmetros calculados: 1 registros
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:51 - ================================================================================
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:52 - ✗ SEM PERMISSÃO DE UPDATE NA TABELA SEP
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:53 - ================================================================================
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:54 - Solução: Execute no SQL Server (como DBA):
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:55 - 
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:56 -   USE AC;
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:57 -   GO
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:58 -   GRANT UPDATE ON dbo.SEP TO [seu_usuario];
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:59 -   GO
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:60 - 
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:61 - Ou configure um usuário com permissões adequadas.
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:verificar_permissao_update:62 - ================================================================================
+2025-10-13 13:27:00 | ERROR    | src.fortes_pre_calculation:ajustar_lote:184 - ⚠️ Abortando lote: sem permissão de UPDATE na tabela SEP
+2025-10-13 13:27:00 | INFO     | src.workflow_manager:aplicar_correcoes_fortes:292 - Resultado do lote: 0 sucessos, 1 falhas

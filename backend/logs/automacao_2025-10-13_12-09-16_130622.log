@@ -1,0 +1,3 @@
+2025-10-13 12:09:17 | INFO     | src.workflow_manager:executar_calculo:90 - Iniciando cálculo para PHYSIO VIDA - HYK SERVICOS DE FISIOTERAPIA E COMERCIO DE ARTIGOS ESPORTIVOS LTDA - 10/2025
+2025-10-13 12:09:18 | INFO     | src.workflow_manager:executar_calculo:101 - Encontrados 17 funcionários
+2025-10-13 12:09:18 | SUCCESS  | src.workflow_manager:executar_calculo:130 - Cálculo concluído: 1 funcionários elegíveis, R$ 1,083.00

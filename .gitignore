@@ -1,7 +1,7 @@
 # .gitignore
 
 # Ambiente Virtual
-venv/
+.venv/
 
 # Arquivos de segredos
 .env

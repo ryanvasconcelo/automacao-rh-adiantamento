@@ -11,6 +11,9 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 import main
 from src.rules_catalog import CATALOG, get_company_rule
@@ -54,8 +57,16 @@ class CorrectedAuditRow(BaseModel):
     nome: str
     empresaCodigo: int
     empresaNome: str
-    # Adicione outros campos se precisar deles no backend
-    # mas para a simulação, estes são suficientes.
+
+
+class ApplyCorrectionsRequest(BaseModel):
+    empresaCodigo: int  # Mudou de str para int
+    month: int
+    year: int
+    selectedMatriculas: List[str]
+    fortes_user: Optional[str] = None
+    fortes_password_hash: Optional[int] = None
+    auto_recalc: bool = False
 
 
 class ReportGenerationRequest(BaseModel):
@@ -172,9 +183,163 @@ async def run_day_audit(request: DayAuditRequest):
     return df_final_filled.to_dict(orient="records")
 
 
-# Em api.py
+@app.post("/corrections/apply")
+async def apply_corrections(request: ApplyCorrectionsRequest):
+    """
+    Aplica correções REAIS na tabela SEP do Fortes.
 
-# ... (o resto do arquivo e os outros endpoints permanecem os mesmos) ...
+    ⚠️ ATENÇÃO: Esta operação modifica o banco de dados do Fortes!
+    """
+    try:
+        from src.workflow_manager import AdiantamentoWorkflow
+
+        # Converte para string para usar no workflow
+        empresa_codigo_str = str(request.empresaCodigo)
+
+        # Busca o código do catálogo pela empresa
+        catalog_code = None
+        for code, rule in CATALOG.items():
+            if rule.emp_id and str(rule.emp_id) == empresa_codigo_str:
+                catalog_code = code
+                break
+
+        if not catalog_code:
+            # Lista empresas disponíveis para debug
+            available_companies = {
+                code: rule.emp_id for code, rule in CATALOG.items() if rule.emp_id
+            }
+            raise HTTPException(
+                status_code=404,
+                detail=f"Empresa {request.empresaCodigo} não encontrada no catálogo. Disponíveis: {available_companies}",
+            )
+
+        # Cria workflow usando o código do catálogo
+        workflow = AdiantamentoWorkflow(
+            catalog_code,
+            request.year,
+            request.month,
+        )
+
+        # Executa o fluxo completo com correções
+        result = workflow.executar_fluxo_completo(
+            aplicar_correcoes=True,
+            confirmado=True,
+            fortes_user=request.fortes_user or os.getenv("FORTES_USER"),
+            fortes_password_hash=request.fortes_password_hash
+            or int(os.getenv("FORTES_PASSWORD_HASH", "0")),
+            auto_recalc=request.auto_recalc,
+        )
+
+        # Verifica o tipo de erro
+        if result.status.value == "erro":
+            # Verifica se é erro de permissão
+            if result.falhas_correcao and all(
+                "permiss" in str(f.get("erro", "")).lower()
+                for f in result.falhas_correcao
+            ):
+                # Todas as falhas são de permissão
+                raise HTTPException(
+                    status_code=403,  # Forbidden
+                    detail={
+                        "error": "Permissão negada para UPDATE na tabela SEP",
+                        "message": "O usuário do banco de dados não tem permissão para modificar a tabela SEP.",
+                        "solution": [
+                            "Execute no SQL Server (como DBA):",
+                            "",
+                            "USE AC;",
+                            "GO",
+                            "GRANT UPDATE ON dbo.SEP TO [seu_usuario];",
+                            "GO",
+                            "",
+                            "Ou configure um usuário com permissões adequadas no arquivo .env",
+                        ],
+                        "affected_employees": len(result.falhas_correcao),
+                        "technical_details": result.mensagem,
+                    },
+                )
+            else:
+                # Outros tipos de erro
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error": result.mensagem,
+                        "failures": result.falhas_correcao,
+                    },
+                )
+
+        # Verifica sucesso parcial (algumas correções aplicadas, outras não)
+        if result.correcoes_aplicadas == 0 and result.falhas_correcao:
+            # Nenhuma correção aplicada
+            erros_permissao = [
+                f
+                for f in result.falhas_correcao
+                if "permiss" in str(f.get("erro", "")).lower()
+            ]
+
+            if len(erros_permissao) == len(result.falhas_correcao):
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "Permissão negada para UPDATE na tabela SEP",
+                        "solution": [
+                            "USE AC;",
+                            "GRANT UPDATE ON dbo.SEP TO [seu_usuario];",
+                        ],
+                        "affected_employees": len(result.falhas_correcao),
+                    },
+                )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error": "Nenhuma correção aplicada",
+                        "failures": result.falhas_correcao,
+                    },
+                )
+
+        # Sucesso (total ou parcial)
+        response_data = {
+            "success": True,
+            "message": result.mensagem,
+            "correcoes_aplicadas": result.correcoes_aplicadas,
+            "caminho_pdf": result.caminho_pdf,
+            "caminho_csv": result.caminho_csv,
+        }
+
+        # Adiciona avisos se houve falhas parciais
+        if result.falhas_correcao:
+            response_data["warning"] = (
+                f"{len(result.falhas_correcao)} funcionários falharam"
+            )
+            response_data["falhas"] = result.falhas_correcao
+
+        return response_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+
+        # Verifica se é erro de permissão na exceção genérica
+        error_msg = str(e).lower()
+        if "permission" in error_msg or "permiss" in error_msg:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Permissão negada",
+                    "message": str(e),
+                    "solution": [
+                        "USE AC;",
+                        "GRANT UPDATE ON dbo.SEP TO [seu_usuario];",
+                    ],
+                },
+            )
+
+        raise HTTPException(
+            status_code=500, detail=f"Erro ao aplicar correções: {str(e)}"
+        )
 
 
 @app.post("/reports/generate")

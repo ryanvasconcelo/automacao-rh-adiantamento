@@ -72,14 +72,35 @@ const App = () => {
     }
   };
 
-  const handleApplyCorrections = (correctedCompanyData) => {
-    alert('Correções aplicadas com sucesso (simulado)!');
-    const updatedAuditData = auditData.map(row => {
-      const correctedRow = correctedCompanyData.find(cRow => cRow.matricula === row.matricula);
-      return correctedRow || row;
-    });
-    setAuditData(updatedAuditData);
-    setView('SUMMARY');
+  const handleApplyCorrections = async (empresaCodigo, selectedMatriculas) => {
+    setIsLoading(true);
+    setLoadingMessage('Aplicando correções no Fortes...');
+    setError('');
+    try {
+      const response = await fetch(`${API_URL}/corrections/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empresaCodigo: parseInt(empresaCodigo), // Garante que é número
+          month: parseInt(selectedMonth),
+          year: parseInt(selectedYear),
+          selectedMatriculas: selectedMatriculas,
+          auto_recalc: true, // Ativa recálculo automático
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        alert(`✅ Correções aplicadas com sucesso!\n\n${data.correcoes_aplicadas} registros atualizados no Fortes.\n${data.message}`);
+        // Recarrega os dados após aplicar correções
+        await handleRunDayAudit();
+      } else {
+        setError(data.detail || 'Erro ao aplicar correções.');
+      }
+    } catch (err) {
+      setError('Falha na comunicação com a API ao aplicar correções.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleGenerateReports = async () => {
@@ -150,7 +171,15 @@ const App = () => {
           <>
             {view === 'SELECTION' && (<SelectionView selectedDay={selectedDay} setSelectedDay={setSelectedDay} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth} selectedYear={selectedYear} setSelectedYear={setSelectedYear} onAudit={handleRunDayAudit} />)}
             {view === 'SUMMARY' && (<SummaryView summaryData={groupedSummaryData} onSelectCompany={(code) => { setSelectedCompanyCode(code); setView('DETAIL'); }} onGenerateReports={() => setView('GENERATION')} />)}
-            {view === 'DETAIL' && (<DetailView companyData={auditData.filter(row => row.empresaCode === selectedCompanyCode)} companyName={groupedSummaryData[selectedCompanyCode]?.nome || ''} onApplyCorrections={handleApplyCorrections} onBack={() => setView('SUMMARY')} />)}
+            {view === 'DETAIL' && (
+              <DetailView
+                companyData={auditData.filter(row => row.empresaCode === selectedCompanyCode)}
+                companyName={groupedSummaryData[selectedCompanyCode]?.nome || ''}
+                empresaCodigo={auditData.find(row => row.empresaCode === selectedCompanyCode)?.empresaCodigo || selectedCompanyCode}
+                onApplyCorrections={handleApplyCorrections}
+                onBack={() => setView('SUMMARY')}
+              />
+            )}
             {view === 'GENERATION' && (<GenerationView onConfirm={handleGenerateReports} onBack={() => setView('SUMMARY')} companies={Object.values(groupedSummaryData)} />)}
           </>
         )}
@@ -198,7 +227,7 @@ const SummaryView = ({ summaryData, onSelectCompany, onGenerateReports }) => (
   </div>
 );
 
-const DetailView = ({ companyData, companyName, onApplyCorrections, onBack }) => {
+const DetailView = ({ companyData, companyName, empresaCodigo, onApplyCorrections, onBack }) => {
   const [filterAnalise, setFilterAnalise] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRows, setSelectedRows] = useState(new Set());
@@ -209,15 +238,43 @@ const DetailView = ({ companyData, companyName, onApplyCorrections, onBack }) =>
     setSearchTerm('');
   }, [companyData]);
 
-  const formatCurrency = (value) => (value != null ? value : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  // Formata moeda com arredondamento para 2 casas decimais
+  const formatCurrency = (value) => {
+    const rounded = Math.round((value || 0) * 100) / 100; // Arredonda para 2 casas decimais
+    return rounded.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
 
   const metrics = useMemo(() => {
-    if (!companyData) return { totalFunc: 0, totalBruto: 0, totalBrutoAuditado: 0, totalFinal: 0, ok: 0, divergencia: 0, removidos: 0, grave: 0 };
+    if (!companyData) return {
+      totalFunc: 0,
+      totalBruto: 0,
+      totalDescontos: 0,
+      totalFinal: 0,
+      funcionariosElegiveis: 0,
+      ok: 0,
+      divergencia: 0,
+      removidos: 0,
+      grave: 0
+    };
+    
+    // Calcula totais com arredondamento para 2 casas decimais
+    const totalBruto = Math.round(companyData.reduce((sum, row) => sum + (row.valorBruto || 0), 0) * 100) / 100;
+    const totalDescontos = Math.round(companyData.reduce((sum, row) => sum + (row.desconto || 0), 0) * 100) / 100;
+    const totalFinal = Math.round(companyData.reduce((sum, row) => sum + (row.valorFinal || 0), 0) * 100) / 100;
+    
+    // Conta funcionários elegíveis (aqueles com status "Elegível" ou análise "OK"/"Corrigido")
+    const funcionariosElegiveis = companyData.filter(row =>
+      row.status === 'Elegível' ||
+      row.analise.includes('OK') ||
+      row.analise.includes('Corrigido')
+    ).length;
+    
     return {
       totalFunc: companyData.length,
-      totalBruto: companyData.reduce((sum, row) => sum + (row.valorBruto || 0), 0),
-      totalBrutoAuditado: companyData.reduce((sum, row) => sum + (row.valorBrutoAuditado || 0), 0),
-      totalFinal: companyData.reduce((sum, row) => sum + (row.valorFinal || 0), 0),
+      totalBruto,
+      totalDescontos,
+      totalFinal,
+      funcionariosElegiveis,
       ok: companyData.filter(row => row.analise.includes('OK') || row.analise.includes('Corrigido')).length,
       divergencia: companyData.filter(row => row.analise.includes('Divergência')).length,
       removidos: companyData.filter(row => row.analise.includes('Removido')).length,
@@ -241,13 +298,23 @@ const DetailView = ({ companyData, companyName, onApplyCorrections, onBack }) =>
   }, [companyData, filterAnalise, searchTerm]);
 
   const handleSimulateCorrections = () => {
-    const correctedData = companyData.map(row => {
-      if (selectedRows.has(row.matricula) && !row.analise.includes('OK')) {
-        return { ...row, analise: `OK (Corrigido)`, valorBruto: row.valorFinal };
-      }
-      return row;
-    });
-    onApplyCorrections(correctedData);
+    if (selectedRows.size === 0) {
+      alert('Selecione pelo menos um funcionário para aplicar correções.');
+      return;
+    }
+    
+    const confirmMessage = `⚠️ ATENÇÃO: Você está prestes a aplicar correções REAIS no banco de dados Fortes!\n\n` +
+      `${selectedRows.size} funcionário(s) selecionado(s)\n` +
+      `Empresa: ${companyName}\n\n` +
+      `As alterações serão feitas na tabela SEP e a folha será recalculada automaticamente.\n\n` +
+      `Deseja continuar?`;
+    
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+    
+    // Chama a API real para aplicar correções
+    onApplyCorrections(empresaCodigo, Array.from(selectedRows));
   };
 
   const toggleRow = (matricula) => {
@@ -283,9 +350,9 @@ const DetailView = ({ companyData, companyName, onApplyCorrections, onBack }) =>
       <h2 className="text-3xl font-bold text-gray-900 mb-6">{companyName}</h2>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"><p className="text-sm text-gray-600 font-medium mb-1">Valor Bruto (Fortes)</p><p className="text-3xl font-bold text-gray-900">{formatCurrency(metrics.totalBruto)}</p></div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"><p className="text-sm text-gray-600 font-medium mb-1">Valor Bruto (Auditado)</p><p className="text-3xl font-bold text-gray-900">{formatCurrency(metrics.totalBrutoAuditado)}</p></div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"><p className="text-sm text-gray-600 font-medium mb-1">Descontos Consignado</p><p className="text-3xl font-bold text-orange-600">{formatCurrency(metrics.totalDescontos)}</p></div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"><p className="text-sm text-gray-600 font-medium mb-1">Valor Líquido (Auditado)</p><p className="text-3xl font-bold text-blue-600">{formatCurrency(metrics.totalFinal)}</p></div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"><p className="text-sm text-gray-600 font-medium mb-1">Inconsistências</p><p className="text-3xl font-bold text-red-600">{metrics.grave + metrics.divergencia}</p></div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"><p className="text-sm text-gray-600 font-medium mb-1">Funcionários Elegíveis</p><p className="text-3xl font-bold text-green-600">{metrics.funcionariosElegiveis}</p></div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">

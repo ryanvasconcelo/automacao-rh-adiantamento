@@ -8,9 +8,10 @@ from .emp_ids import CODE_TO_EMP_ID
 
 @dataclass(frozen=True)
 class PayWindow:
-    analysis_days: int = 30
+    analysis_days: int = 30  # Obsoleto - será calculado dinamicamente
     pay_day: int = 20
     process_from_day: int = 15
+    use_real_month_days: bool = True  # Usar dias reais do mês
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,12 @@ _JR_SPECIALS = SpecialRoles()
 
 CATALOG: Dict[str, CompanyRule] = {
     # --- EMPRESAS DIA 15 ---
-    "TACACA": CompanyRule("TACACA", "TACACÁ DA TIA SOCORRO", _DAY_15_PADRAO),
+    "TACACA": CompanyRule(
+        "TACACA",
+        "TACACÁ DA TIA SOCORRO",
+        _DAY_15_PADRAO,
+        overrides={"no_rounding": True},
+    ),
     "AMM": CompanyRule(
         "AMM", "AMM SERVICOS DE APOIO ADMINISTRATIVO LTDA", _DAY_15_PADRAO
     ),
@@ -77,10 +83,18 @@ CATALOG: Dict[str, CompanyRule] = {
         "RIO", "FABRICACAO DE CERVEJAS E CHOPES RIO NEGRO LTDA", _DAY_15_PADRAO
     ),
     "CMD": CompanyRule(
-        "CMD", "C.M. DISTRIBUIDORA DE ALIMENTOS LTDA - MATRIZ", _DAY_15_PADRAO
+        "CMD",
+        "C.M. DISTRIBUIDORA DE ALIMENTOS LTDA - MATRIZ",
+        _DAY_15_PADRAO,
+        overrides={"no_rounding": True},
     ),
     "MAP": CompanyRule("MAP", "M.A. DE O. PINHEIRO LTDA", _DAY_15_PADRAO),
-    "RPC": CompanyRule("RPC", "REAL PROTEINA COMERCIO DE CARNES LTDA", _DAY_15_PADRAO),
+    "RPC": CompanyRule(
+        "RPC",
+        "REAL PROTEINA COMERCIO DE CARNES LTDA",
+        _DAY_15_PADRAO,
+        overrides={"no_rounding": True},
+    ),
     "REMBRAZ": CompanyRule(
         "REMBRAZ", "DISTRIBUIDORA COMERCIAL REMBRAZ EIRELI", _DAY_15_PADRAO
     ),
@@ -101,7 +115,7 @@ CATALOG: Dict[str, CompanyRule] = {
     "SUP": CompanyRule(
         "SUP",
         "SUPPORT NORT COMERCIO DE EQUIPAMENTOS E COMPONENTES INDUSTRIAIS LTDA",
-        _DAY_15_PADRAO,
+        _DAY_15_PADRAO, 
     ),
     "CSR": CompanyRule(
         "CSR",

@@ -1,0 +1,2 @@
+2025-10-13 11:23:22 | SUCCESS  | src.fortes_auto_recalc:validar_credenciais:57 - ✅ Usuário encontrado: RYAN (Hash: 50619)
+2025-10-13 11:23:22 | WARNING  | src.fortes_auto_recalc:validar_credenciais:58 - ⚠️ NOTA: O Fortes usa hash numérico para senhas. Validação completa requer função de hash do Fortes.

@@ -1,0 +1,2 @@
+2025-10-13 12:03:25 | INFO     | src.workflow_manager:executar_calculo:84 - Iniciando cálculo para PHYSIO VIDA - HYK SERVICOS DE FISIOTERAPIA E COMERCIO DE ARTIGOS ESPORTIVOS LTDA - 10/2025
+2025-10-13 12:03:25 | ERROR    | src.workflow_manager:executar_calculo:137 - Erro no cálculo: invalid literal for int() with base 10: 'PHY'

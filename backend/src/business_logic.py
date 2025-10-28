@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import date
 import math
+import calendar
 
 # ATUALIZAÇÃO: Importa o objeto de regra para type hinting
 from .rules_catalog import CompanyRule
@@ -48,13 +49,19 @@ def processar_regras(
     analise_df.fillna(value=fill_values, inplace=True)
 
     def analisar_funcionario(row):
-        # ... (Esta função interna permanece a mesma) ...
         status = "Elegível"
-        dias_a_considerar = 30.0
+        
+        # Calcula dias reais do mês (28-31)
+        dias_no_mes = calendar.monthrange(ano, mes)[1]
+        
+        # SEMPRE usa dias reais do mês como base
+        dias_a_considerar = float(dias_no_mes)
+        
         observacoes = []
         inicio_mes = date(ano, mes, 1)
-        fim_mes = date(ano, mes, 30)
-        data_pagamento = date(ano, mes, 20)
+        fim_mes = date(ano, mes, dias_no_mes)  # Último dia real do mês
+        # usa o pay_day da regra específica
+        data_pagamento = date(ano, mes, rule.base.window.pay_day)
         admissao = row["AdmissaoData"].date() if pd.notna(row["AdmissaoData"]) else None
         rescisao = row["DtRescisao"].date() if pd.notna(row["DtRescisao"]) else None
         inicio_afast = row["DtInicio"].date() if pd.notna(row["DtInicio"]) else None
@@ -70,31 +77,151 @@ def processar_regras(
         elif row["FlagAdiantamento"] != "S":
             status = "Inelegível"
             observacoes.append("Flag adiantamento desabilitado")
-        elif (
-            admissao
-            and admissao.year == ano
-            and admissao.month == mes
-            and admissao.day > 10
-        ):
-            status = "Inelegível"
-            observacoes.append(f"Admissão em {admissao.strftime('%d/%m/%Y')}")
+        # REGRA 2.5: Admissão - agora usa o valor da regra específica
+        # REGRA ESPECÍFICA CMD: permite admissão com 1 dia
+        admission_limit = rule.base.admission_receive_until_day
+        # Override para C.M. DISTRIBUIDORA (permite admissão com 1 dia)
+        if rule.code == "CMD":
+            admission_limit = 31  # Qualquer dia do mês
+        
+        # Verifica se foi admitido no mês de competência
+        if admissao and admissao.year == ano and admissao.month == mes:
+            # Se admitido APÓS o limite, é inelegível
+            if admissao.day > admission_limit:
+                status = "Inelegível"
+                observacoes.append(f"Admissão em {admissao.strftime('%d/%m/%Y')}")
+            # REGRA ESPECÍFICA REMBRAZ: Admissão 1-15 proporcional
+            elif rule.code == "REMBRAZ" and admissao.day <= 15:
+                dias_a_considerar = dias_no_mes - (admissao.day - 1)
+                observacoes.append(f"Admissão proporcional em {admissao.strftime('%d/%m/%Y')}")
+            # REGRA GERAL: Admissão no meio do mês = proporcional
+            elif admissao.day > 1:
+                # Calcula dias trabalhados desde a admissão até o fim do mês
+                dias_a_considerar = dias_no_mes - (admissao.day - 1)
+                observacoes.append(f"Admissão proporcional em {admissao.strftime('%d/%m/%Y')} ({dias_a_considerar} dias)")
         if status == "Inelegível":
             row["Status"] = status
             row["Observacoes"] = "; ".join(observacoes)
             row["DiasTrabalhados"] = 0
             return row
         if pd.notna(inicio_afast):
+            # REGRA 1.1: Licença Maternidade
             if codigo_licenca in CODIGOS_LICENCA_MATERNIDADE:
                 observacoes.append("Licença Maternidade (Elegível por regra)")
-            elif (
-                codigo_licenca == CODIGO_FERIAS
-                and fim_afast
-                and fim_afast.year == ano
-                and fim_afast.month == mes
-                and fim_afast.day < 15
-            ):
-                observacoes.append(f"Retorno de férias em {fim_afast.day + 1}/{mes}")
-                dias_a_considerar = 30 - fim_afast.day
+            
+            # REGRAS 2.4, 2.7 e 2.8: FÉRIAS
+            elif codigo_licenca == CODIGO_FERIAS:
+                pay_day = rule.base.window.pay_day
+                
+                # ⚠️ REGRA PRIORITÁRIA: Férias iniciadas APÓS dia 15 = INELEGÍVEL
+                # Esta regra tem mais pujança que todas as outras
+                if (
+                    inicio_afast
+                    and inicio_afast.year == ano
+                    and inicio_afast.month == mes
+                    and inicio_afast.day > 15
+                ):
+                    status = "Inelegível"
+                    observacoes.append(f"Férias iniciam dia {inicio_afast.day} - após dia 15 (não trabalhou primeira quinzena completa)")
+                
+                # CASO ESPECIAL: Férias começam e terminam no mesmo mês (ex: Vicente 6/10 a 10/10)
+                elif (
+                    inicio_afast
+                    and fim_afast
+                    and inicio_afast.year == ano
+                    and inicio_afast.month == mes
+                    and fim_afast.year == ano
+                    and fim_afast.month == mes
+                ):
+                    # Calcula dias trabalhados: antes das férias + depois das férias
+                    dias_antes_ferias = inicio_afast.day - 1  # dias 1 até dia antes das férias
+                    dias_depois_ferias = dias_no_mes - fim_afast.day  # dias após retorno até fim do mês
+                    dias_a_considerar = dias_antes_ferias + dias_depois_ferias
+                    
+                    # NOVA REGRA: Deve ter trabalhado pelo menos 1 dia na primeira quinzena (1-15)
+                    # Verifica se trabalhou algum dia entre 1-15
+                    dias_trabalhados_primeira_quinzena = 0
+                    
+                    # Dias antes das férias que caem na primeira quinzena
+                    if inicio_afast.day > 1:
+                        dias_trabalhados_primeira_quinzena += min(inicio_afast.day - 1, 15)
+                    
+                    # Dias depois das férias que caem na primeira quinzena
+                    if fim_afast.day < 15:
+                        dias_trabalhados_primeira_quinzena += (15 - fim_afast.day)
+                    
+                    if dias_trabalhados_primeira_quinzena == 0:
+                        status = "Inelegível"
+                        observacoes.append(f"Férias {inicio_afast.day}/{mes} a {fim_afast.day}/{mes} - não trabalhou na primeira quinzena")
+                    else:
+                        observacoes.append(
+                            f"Férias {inicio_afast.day}/{mes} a {fim_afast.day}/{mes} "
+                            f"({dias_a_considerar} dias trabalhados)"
+                        )
+                
+                # REGRA 2.8: Retorno de férias dia 16+ não recebe
+                elif (
+                    fim_afast
+                    and fim_afast.year == ano
+                    and fim_afast.month == mes
+                    and fim_afast.day >= pay_day
+                ):
+                    status = "Inelegível"
+                    observacoes.append(f"Retorno de férias após dia {pay_day} ({fim_afast.strftime('%d/%m/%Y')})")
+                
+                # REGRA 2.4: Retorno de férias entre 1 e (pay_day-1) - proporcional
+                elif (
+                    fim_afast
+                    and fim_afast.year == ano
+                    and fim_afast.month == mes
+                    and fim_afast.day < pay_day
+                ):
+                    # NOVA REGRA: Verifica se trabalhou na primeira quinzena
+                    # Se retornou após dia 15, não trabalhou na primeira quinzena
+                    if fim_afast.day >= 15:
+                        status = "Inelegível"
+                        observacoes.append(f"Retorno de férias dia {fim_afast.day + 1}/{mes} - não trabalhou na primeira quinzena")
+                    else:
+                        # Dias trabalhados após o retorno
+                        dias_a_considerar = dias_no_mes - fim_afast.day
+                        observacoes.append(f"Retorno de férias dia {fim_afast.day + 1}/{mes} ({dias_a_considerar} dias)")
+                
+                # REGRA 2.6: Início de férias entre 1 e (pay_day-1) - proporcional
+                elif (
+                    inicio_afast.year == ano
+                    and inicio_afast.month == mes
+                    and inicio_afast.day < pay_day
+                ):
+                    # NOVA REGRA: Deve ter trabalhado pelo menos 1 dia na primeira quinzena
+                    # Se férias começam no dia 1, não trabalhou nenhum dia
+                    if inicio_afast.day <= 1:
+                        status = "Inelegível"
+                        observacoes.append(f"Férias desde dia {inicio_afast.day} - não trabalhou na primeira quinzena")
+                    # REGRA 1.4: Se tem consignado, recebe proporcional; se não tem, é inelegível
+                    elif not tem_consignado:
+                        status = "Inelegível"
+                        observacoes.append(f"Férias iniciadas em {inicio_afast.strftime('%d/%m/%Y')} (sem consignado)")
+                    else:
+                        # Dias trabalhados antes das férias
+                        dias_a_considerar = inicio_afast.day - 1
+                        observacoes.append(f"Férias proporcional até {inicio_afast.strftime('%d/%m/%Y')} ({dias_a_considerar} dias)")
+                
+                # REGRA 2.7: Férias começam no dia do pagamento (dia 15)
+                elif (
+                    inicio_afast.year == ano
+                    and inicio_afast.month == mes
+                    and inicio_afast.day == pay_day
+                ):
+                    # Férias começam exatamente no dia 15 - recebe normal
+                    observacoes.append(f"Férias iniciam dia {inicio_afast.day} (no dia do pagamento)")
+                
+                # REGRA ESPECÍFICA REMBRAZ: Alerta se férias não cobrem mês completo
+                if rule.code == "REMBRAZ":
+                    if inicio_afast and fim_afast:
+                        if inicio_afast.day != 1 or fim_afast.day != 30:
+                            observacoes.append(f"⚠️ ALERTA: Férias não cobrem período completo (1-30)")
+            
+            # REGRA 1.2: Afastamento médico
             elif codigo_licenca in CODIGOS_AFASTAMENTO_DOENCA:
                 fim_efetivo_afastamento = fim_afast if pd.notna(fim_afast) else fim_mes
                 dias_de_licenca_no_mes = (
@@ -103,18 +230,9 @@ def processar_regras(
                 ).days + 1
                 if dias_de_licenca_no_mes >= 16:
                     status = "Inelegível"
-                    observacoes.append(
-                        f"{dias_de_licenca_no_mes} dias de licença médica no mês"
-                    )
-            elif (
-                codigo_licenca == CODIGO_FERIAS
-                and inicio_afast.year == ano
-                and inicio_afast.month == mes
-                and inicio_afast.day < 16
-                and not tem_consignado
-            ):
-                status = "Inelegível"
-                observacoes.append("Férias iniciadas antes do dia 16 (sem consignado)")
+                    observacoes.append(f"{dias_de_licenca_no_mes} dias de licença médica no mês")
+            
+            # Outros afastamentos iniciados antes do mês
             elif inicio_afast < inicio_mes:
                 status = "Inelegível"
                 observacoes.append(
@@ -126,6 +244,13 @@ def processar_regras(
         return row
 
     analise_df = analise_df.apply(analisar_funcionario, axis=1)
+    
+    # REGRA ESPECÍFICA PHYSIO VIDA: apenas "Maria" recebe
+    if rule.code == "PHY":
+        mask_maria = analise_df["Nome"].str.upper().str.contains("MARIA", na=False)
+        analise_df.loc[~mask_maria, "Status"] = "Inelegível"
+        analise_df.loc[~mask_maria, "Observacoes"] = "Empresa permite apenas funcionária Maria"
+    
     elegiveis = analise_df["Status"] == "Elegível"
     analise_df["ValorAdiantamentoBruto"] = 0.0
 
@@ -165,7 +290,12 @@ def processar_regras(
         base_calculo * percentual
     )
 
-    mask_proporcional = analise_df["DiasTrabalhados"] < 30
+    # Calcula proporcionalidade:
+    # - Divide salário por 30 (mês comercial)
+    # - Multiplica pelos dias reais trabalhados
+    dias_no_mes = calendar.monthrange(ano, mes)[1]
+    mask_proporcional = analise_df["DiasTrabalhados"] < dias_no_mes
+    # Fator: dias_trabalhados / 30 (sempre usa 30 como divisor)
     fator_proporcional = analise_df["DiasTrabalhados"] / 30.0
     analise_df.loc[
         elegiveis & mask_proporcional, "ValorAdiantamentoBruto"
