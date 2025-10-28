@@ -1,7 +1,7 @@
 // src/App.jsx (Versão Completa e Final)
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { ChevronLeft, ChevronsRight, FileDown, Loader, Search, CheckSquare, Square, XCircle } from 'lucide-react';
+import { ChevronLeft, ChevronsRight, FileDown, Loader, Search, CheckSquare, Square, XCircle, CheckCircle, AlertTriangle, UploadCloud } from 'lucide-react';
 import logoProjecont from './assets/logoProjecont.jpeg';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
@@ -25,32 +25,67 @@ const ErrorScreen = ({ message, onRetry }) => (
   </div>
 );
 
+const Alert = ({ message, type = 'error', onClose }) => {
+  const bgColor = type === 'success' ? 'bg-green-50' : 'bg-red-50';
+  const borderColor = type === 'success' ? 'border-green-300' : 'border-red-300';
+  const textColor = type === 'success' ? 'text-green-800' : 'text-red-800';
+  const Icon = type === 'success' ? CheckCircle : AlertTriangle;
+
+  return (
+    <div className={`border-l-4 ${borderColor} ${bgColor} p-4 mb-6 rounded-md shadow-sm flex justify-between items-center`}>
+      <div className="flex items-center">
+        <Icon className={`h-5 w-5 ${textColor} mr-3`} aria-hidden="true" />
+        <p className={`text-sm font-medium ${textColor}`}>{message}</p>
+      </div>
+      {onClose && ( // Renderiza o botão apenas se onClose for fornecido
+        <button onClick={onClose} className={`ml-4 p-1 rounded-md ${bgColor} hover:bg-opacity-80 focus:outline-none focus:ring-2 focus:ring-offset-2 ${type === 'success' ? 'focus:ring-green-600' : 'focus:ring-red-600'}`}>
+          <XCircle className={`h-5 w-5 ${textColor}`} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
+};
+const SuccessAlert = ({ message, onClose }) => <Alert message={message} type="success" onClose={onClose} />;
+const ErrorAlert = ({ message, onClose }) => <Alert message={message} type="error" onClose={onClose} />;
+
+// --- Componente Principal App ---
 const App = () => {
-  const [view, setView] = useState('SELECTION'); // SELECTION, SUMMARY, DETAIL, GENERATION
+  const [view, setView] = useState('SELECTION');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [error, setError] = useState('');
+  // --- CORREÇÃO APLICADA AQUI ---
+  const [successMessage, setSuccessMessage] = useState(''); // <-- Adicionada declaração
+  // -----------------------------
   const [auditData, setAuditData] = useState([]);
   const [selectedCompanyCode, setSelectedCompanyCode] = useState(null);
-  const [selectedDay, setSelectedDay] = useState('20');
+  const [selectedDay, setSelectedDay] = useState('15');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
+  useEffect(() => {
+    let timer;
+    if (successMessage || error) {
+      timer = setTimeout(() => {
+        setSuccessMessage('');
+        setError('');
+      }, 5000);
+    }
+    return () => { if (timer) clearTimeout(timer); };
+  }, [successMessage, error]); // Agora as dependências existem
+
   const resetFlow = () => {
-    setView('SELECTION');
-    setAuditData([]);
-    setSelectedCompanyCode(null);
-    setError('');
-    setIsLoading(false);
+    setView('SELECTION'); setAuditData([]); setSelectedCompanyCode(null);
+    setError(''); setIsLoading(false); setSuccessMessage(''); // Inclui reset do successMessage
   };
 
   const handleRunDayAudit = async () => {
-    setIsLoading(true);
-    setLoadingMessage('Auditando todas as empresas...');
-    setError('');
+    setIsLoading(true); setLoadingMessage('Auditando todas as empresas...'); setError(''); setSuccessMessage('');
     try {
       const response = await fetch(`${API_URL}/audit/day`, {
-        method: 'POST',
+        // --- CORREÇÃO APLICADA AQUI ---
+        method: 'POST', // <-- Garante que o método é POST
+        // -----------------------------
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           day: parseInt(selectedDay),
@@ -59,89 +94,49 @@ const App = () => {
         }),
       });
       const data = await response.json();
-      if (response.ok) {
-        setAuditData(data);
-        setView('SUMMARY');
-      } else {
-        setError(data.detail || 'Ocorreu um erro na API de auditoria.');
-      }
-    } catch (err) {
-      setError('Falha na comunicação com a API. Verifique se o backend está a correr.');
-    } finally {
-      setIsLoading(false);
-    }
+      if (response.ok) { setAuditData(data); setView('SUMMARY'); }
+      else { setError(data.detail || 'Erro na API de auditoria.'); }
+    } catch (err) { setError('Falha na comunicação com a API.'); }
+    finally { setIsLoading(false); }
   };
 
-  const handleApplyCorrections = async (empresaCodigo, selectedMatriculas) => {
-    setIsLoading(true);
-    setLoadingMessage('Aplicando correções no Fortes...');
-    setError('');
+  // REMOVIDO handleApplyCorrections pois usamos RPA futuramente
+
+  const handleImportConsignments = async (companyCodes = null) => {
+    setIsLoading(true); setLoadingMessage('Iniciando importação de consignados (RPA)...'); setError(''); setSuccessMessage('');
     try {
-      const response = await fetch(`${API_URL}/corrections/apply`, {
+      const response = await fetch(`${API_URL}/rpa/import-consignments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          empresaCodigo: parseInt(empresaCodigo), // Garante que é número
-          month: parseInt(selectedMonth),
-          year: parseInt(selectedYear),
-          selectedMatriculas: selectedMatriculas,
-          auto_recalc: true, // Ativa recálculo automático
-        }),
+        body: JSON.stringify({ year: parseInt(selectedYear), month: parseInt(selectedMonth), company_codes: companyCodes }),
       });
-      const data = await response.json();
-      if (response.ok) {
-        alert(`✅ Correções aplicadas com sucesso!\n\n${data.correcoes_aplicadas} registros atualizados no Fortes.\n${data.message}`);
-        // Recarrega os dados após aplicar correções
-        await handleRunDayAudit();
-      } else {
-        setError(data.detail || 'Erro ao aplicar correções.');
-      }
-    } catch (err) {
-      setError('Falha na comunicação com a API ao aplicar correções.');
-    } finally {
-      setIsLoading(false);
-    }
+      const result = await response.json();
+      if (response.ok && result.status === 'success') {
+        setSuccessMessage(result.message);
+        await handleRunDayAudit(); // Reexecuta auditoria para atualizar status
+      } else { setError(result.detail || result.message || 'Falha ao importar consignados.'); }
+    } catch (err) { setError('Erro de rede ao acionar a importação.'); }
+    finally { setIsLoading(false); }
   };
 
   const handleGenerateReports = async () => {
-    setIsLoading(true);
-    setLoadingMessage('Gerando e compactando relatórios...');
-    setError('');
+    setIsLoading(true); setLoadingMessage('Acionando RPA para gerar relatórios...'); setError(''); setSuccessMessage('');
     try {
       const response = await fetch(`${API_URL}/reports/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          month: parseInt(selectedMonth),
-          year: parseInt(selectedYear),
-          data: auditData.map(row => ({
-            matricula: row.matricula,
-            nome: row.nome,
-            empresaCodigo: row.empresaCodigo,
-            empresaNome: row.empresaNome,
-          }))
+          month: parseInt(selectedMonth), year: parseInt(selectedYear),
+          data: auditData.map(row => ({ matricula: row.matricula, nome: row.nome, empresaCodigo: row.empresaCodigo, empresaNome: row.empresaNome }))
         }),
       });
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Relatorios_Adiantamento_${selectedMonth}-${selectedYear}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-        alert('Download iniciado com sucesso!');
-      } else {
-        const errorData = await response.json();
-        setError(errorData.detail || 'Falha ao gerar os relatórios.');
-      }
-    } catch (err) {
-      setError('Erro de rede ao gerar relatórios.');
-    } finally {
-      setIsLoading(false);
-    }
+      const result = await response.json(); // Espera JSON, não blob
+      if (response.ok && result.status === 'success') {
+        setSuccessMessage(result.message || 'RPA de geração iniciado (simulado).');
+        // Não há download nesta fase, apenas confirmação
+      } else { setError(result.detail || 'Falha ao acionar RPA de geração.'); }
+    } catch (err) { setError('Erro de rede ao acionar geração de relatórios.'); }
+    finally { setIsLoading(false); }
   };
 
   const groupedSummaryData = useMemo(() => {
@@ -175,8 +170,7 @@ const App = () => {
               <DetailView
                 companyData={auditData.filter(row => row.empresaCode === selectedCompanyCode)}
                 companyName={groupedSummaryData[selectedCompanyCode]?.nome || ''}
-                empresaCodigo={auditData.find(row => row.empresaCode === selectedCompanyCode)?.empresaCodigo || selectedCompanyCode}
-                onApplyCorrections={handleApplyCorrections}
+                empresaCodigo={auditData.find(row => row.empresaCode === selectedCompanyCode)?.empresaCodigo}
                 onBack={() => setView('SUMMARY')}
               />
             )}
@@ -203,29 +197,92 @@ const SelectionView = ({ selectedDay, setSelectedDay, selectedMonth, setSelected
     </div>
   </div>
 );
+// --- Componente SummaryView (CORRIGIDO) ---
+const SummaryView = ({ summaryData, auditData, onSelectCompany, onGenerateReports, onImportConsignments }) => {
 
-const SummaryView = ({ summaryData, onSelectCompany, onGenerateReports }) => (
-  <div>
-    <div className="flex justify-between items-center mb-6">
-      <h2 className="text-3xl font-bold text-gray-900">Resumo da Auditoria</h2>
-      <button onClick={onGenerateReports} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 px-6 rounded-lg shadow-sm">Avançar para Geração <ChevronsRight className="w-5 h-5" /></button>
-    </div>
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {Object.values(summaryData).map(company => (
-        <div key={company.code} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col">
-          <h3 className="font-bold text-lg text-gray-900 mb-4 truncate">{company.nome}</h3>
-          <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
-            <p><strong>Total:</strong> {company.total}</p>
-            <p className={company.grave > 0 ? 'text-red-600' : 'text-gray-600'}><strong>Graves:</strong> {company.grave}</p>
-            <p className={company.divergencia > 0 ? 'text-amber-600' : 'text-gray-600'}><strong>Divergências:</strong> {company.divergencia}</p>
-            <p><strong>Removidos:</strong> {company.removido}</p>
-          </div>
-          <button onClick={() => onSelectCompany(company.code)} className="mt-auto w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg">Ver Detalhes</button>
+  // --- CORREÇÃO APLICADA AQUI ---
+  // Adiciona verificação para garantir que auditData é um array antes de usar reduce
+  const pendingImports = useMemo(() => {
+    if (!Array.isArray(auditData) || auditData.length === 0) return 0; // <-- Verifica se é array e não está vazio
+    const importedCodes = new Set();
+    return auditData.reduce((count, row) => {
+      // Adiciona verificação extra para segurança (row pode ser inválido?)
+      if (row && row.empresaCode && !importedCodes.has(row.empresaCode) && !row.consignadoImportado) {
+        importedCodes.add(row.empresaCode);
+        return count + 1;
+      }
+      return count;
+    }, 0);
+  }, [auditData]);
+
+  // --- CORREÇÃO APLICADA AQUI ---
+  // Adiciona verificação para garantir que auditData é um array antes de usar find
+  const getConsignmentStatus = (companyCode) => {
+    if (!Array.isArray(auditData) || auditData.length === 0) return false; // <-- Verifica se é array e não está vazio
+    const companyRow = auditData.find(row => row && row.empresaCode === companyCode); // Adiciona verificação extra
+    return companyRow ? companyRow.consignadoImportado : false;
+  };
+  // --- FIM DAS CORREÇÕES ---
+
+  return (
+    <div>
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+        <h2 className="text-3xl font-bold text-gray-900">Resumo da Auditoria</h2>
+        <div className="flex items-center gap-4">
+          {/* Botão para Importar Pendentes */}
+          <button
+            onClick={() => onImportConsignments(null)} // null = todos pendentes
+            disabled={pendingImports === 0}
+            className={`flex items-center gap-2 font-semibold py-2.5 px-6 rounded-lg shadow-sm transition-colors ${pendingImports > 0
+              ? 'bg-orange-500 hover:bg-orange-600 text-white'
+              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }`}
+          >
+            <UploadCloud className="w-5 h-5" />
+            Importar Consignados ({pendingImports} pendentes)
+          </button>
+          {/* Botão para Gerar Relatórios */}
+          <button onClick={onGenerateReports} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 px-6 rounded-lg shadow-sm">
+            Gerar Relatórios <ChevronsRight className="w-5 h-5" />
+          </button>
         </div>
-      ))}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {Object.values(summaryData).map(company => {
+          const isImported = getConsignmentStatus(company.code);
+          return (
+            <div key={company.code} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col">
+              <h3 className="font-bold text-lg text-gray-900 mb-4 truncate">{company.nome}</h3>
+              <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+                <p><strong>Total:</strong> {company.total}</p>
+                <p className={company.grave > 0 ? 'text-red-600' : 'text-gray-600'}><strong>Graves:</strong> {company.grave}</p>
+                <p className={company.divergencia > 0 ? 'text-amber-600' : 'text-gray-600'}><strong>Divergências:</strong> {company.divergencia}</p>
+                <p><strong>Removidos:</strong> {company.removido}</p>
+              </div>
+              <div className="flex gap-2 mt-auto">
+                {/* Botão de Status/Ação do Consignado */}
+                <button
+                  onClick={() => !isImported && onImportConsignments([company.code])} // Só permite clicar se não importado
+                  className={`flex-1 flex items-center justify-center gap-2 font-semibold py-2 px-4 rounded-lg text-xs transition-colors ${isImported
+                    ? 'bg-emerald-100 text-emerald-800 cursor-default'
+                    : 'bg-red-100 hover:bg-red-200 text-red-800'
+                    }`}
+                >
+                  {isImported ? <CheckCircle className="w-4 h-4" /> : <UploadCloud className="w-4 h-4" />}
+                  {isImported ? 'Consignado OK' : 'Importar Cons.'}
+                </button>
+                {/* Botão Ver Detalhes */}
+                <button onClick={() => onSelectCompany(company.code)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg text-xs">
+                  Ver Detalhes
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const DetailView = ({ companyData, companyName, empresaCodigo, onApplyCorrections, onBack }) => {
   const [filterAnalise, setFilterAnalise] = useState('all');
@@ -256,19 +313,19 @@ const DetailView = ({ companyData, companyName, empresaCodigo, onApplyCorrection
       removidos: 0,
       grave: 0
     };
-    
+
     // Calcula totais com arredondamento para 2 casas decimais
     const totalBruto = Math.round(companyData.reduce((sum, row) => sum + (row.valorBruto || 0), 0) * 100) / 100;
     const totalDescontos = Math.round(companyData.reduce((sum, row) => sum + (row.desconto || 0), 0) * 100) / 100;
     const totalFinal = Math.round(companyData.reduce((sum, row) => sum + (row.valorFinal || 0), 0) * 100) / 100;
-    
+
     // Conta funcionários elegíveis (aqueles com status "Elegível" ou análise "OK"/"Corrigido")
     const funcionariosElegiveis = companyData.filter(row =>
       row.status === 'Elegível' ||
       row.analise.includes('OK') ||
       row.analise.includes('Corrigido')
     ).length;
-    
+
     return {
       totalFunc: companyData.length,
       totalBruto,
@@ -302,17 +359,17 @@ const DetailView = ({ companyData, companyName, empresaCodigo, onApplyCorrection
       alert('Selecione pelo menos um funcionário para aplicar correções.');
       return;
     }
-    
+
     const confirmMessage = `⚠️ ATENÇÃO: Você está prestes a aplicar correções REAIS no banco de dados Fortes!\n\n` +
       `${selectedRows.size} funcionário(s) selecionado(s)\n` +
       `Empresa: ${companyName}\n\n` +
       `As alterações serão feitas na tabela SEP e a folha será recalculada automaticamente.\n\n` +
       `Deseja continuar?`;
-    
+
     if (!confirm(confirmMessage)) {
       return;
     }
-    
+
     // Chama a API real para aplicar correções
     onApplyCorrections(empresaCodigo, Array.from(selectedRows));
   };
