@@ -1,4 +1,4 @@
-// src/App.jsx (Versão Completa e Final)
+// src/App.jsx (Versão 3.0 - Com Modal, Poller de Status e Notificações)
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { ChevronLeft, ChevronsRight, FileDown, Loader, Search, CheckSquare, Square, XCircle, CheckCircle, AlertTriangle, UploadCloud } from 'lucide-react';
@@ -6,15 +6,13 @@ import logoProjecont from './assets/logoProjecont.jpeg';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://192.168.0.166:8000';
 
-// Componente para telas de Carregamento
+// --- Componentes de UI (Sem Alterações) ---
 const LoadingScreen = ({ message }) => (
   <div className="flex flex-col items-center justify-center text-center p-8">
     <Loader className="w-12 h-12 text-blue-600 animate-spin mb-4" />
     <p className="text-lg font-semibold text-gray-700">{message}</p>
   </div>
 );
-
-// Componente para mensagens de Erro
 const ErrorScreen = ({ message, onRetry }) => (
   <div className="text-center p-8 bg-red-50 rounded-lg">
     <XCircle className="w-12 h-12 text-red-600 mx-auto mb-4" />
@@ -24,7 +22,6 @@ const ErrorScreen = ({ message, onRetry }) => (
     </button>
   </div>
 );
-
 const Alert = ({ message, type = 'error', onClose }) => {
   const bgColor = type === 'success' ? 'bg-green-50' : 'bg-red-50';
   const borderColor = type === 'success' ? 'border-green-300' : 'border-red-300';
@@ -37,7 +34,7 @@ const Alert = ({ message, type = 'error', onClose }) => {
         <Icon className={`h-5 w-5 ${textColor} mr-3`} aria-hidden="true" />
         <p className={`text-sm font-medium ${textColor}`}>{message}</p>
       </div>
-      {onClose && ( // Renderiza o botão apenas se onClose for fornecido
+      {onClose && (
         <button onClick={onClose} className={`ml-4 p-1 rounded-md ${bgColor} hover:bg-opacity-80 focus:outline-none focus:ring-2 focus:ring-offset-2 ${type === 'success' ? 'focus:ring-green-600' : 'focus:ring-red-600'}`}>
           <XCircle className={`h-5 w-5 ${textColor}`} aria-hidden="true" />
         </button>
@@ -47,6 +44,7 @@ const Alert = ({ message, type = 'error', onClose }) => {
 };
 const SuccessAlert = ({ message, onClose }) => <Alert message={message} type="success" onClose={onClose} />;
 const ErrorAlert = ({ message, onClose }) => <Alert message={message} type="error" onClose={onClose} />;
+// --- Fim dos Componentes de UI ---
 
 // --- Componente Principal App ---
 const App = () => {
@@ -54,10 +52,22 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [error, setError] = useState('');
-  // --- CORREÇÃO APLICADA AQUI ---
-  const [successMessage, setSuccessMessage] = useState(''); // <-- Adicionada declaração
-  // -----------------------------
+  const [successMessage, setSuccessMessage] = useState('');
   const [auditData, setAuditData] = useState([]);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+  // --- INÍCIO DA ALTERAÇÃO (AJUSTE "POLLER") ---
+  // Estado para o status da Fila de RPA
+  const [rpaStatus, setRpaStatus] = useState({
+    pending: 0,
+    processing: 0,
+    completed: 0,
+    errors: [],
+  });
+  // Estado para rastrear se estávamos processando, para saber quando recarregar
+  const [wasProcessing, setWasProcessing] = useState(false);
+  // --- FIM DA ALTERAÇÃO ---
+
   const [selectedCompanyCode, setSelectedCompanyCode] = useState(null);
   const [selectedDay, setSelectedDay] = useState('15');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
@@ -65,27 +75,72 @@ const App = () => {
 
   useEffect(() => {
     let timer;
-    if (successMessage || error) {
-      timer = setTimeout(() => {
-        setSuccessMessage('');
-        setError('');
-      }, 5000);
+    if (successMessage) {
+      timer = setTimeout(() => setSuccessMessage(''), 5000); // Auto-limpa sucesso
     }
+    // Não auto-limpamos o erro, o usuário deve fechá-lo
     return () => { if (timer) clearTimeout(timer); };
-  }, [successMessage, error]); // Agora as dependências existem
+  }, [successMessage]);
+
+  // --- INÍCIO DA ALTERAÇÃO (AJUSTE "POLLER") ---
+  // Efeito para o "Poller" (Sondador) da Fila RPA
+  useEffect(() => {
+    // Só roda o poller se estivermos na tela de Resumo
+    if (view !== 'SUMMARY') {
+      setWasProcessing(false); // Reseta o rastreador
+      return;
+    }
+
+    const fetchRpaStatus = async () => {
+      try {
+        const response = await fetch(`${API_URL}/rpa/status`);
+        if (!response.ok) throw new Error('Falha ao buscar status do RPA.');
+
+        const data = await response.json();
+        setRpaStatus(data);
+
+        const isCurrentlyProcessing = data.pending > 0 || data.processing > 0;
+
+        // Se ESTAVA processando (wasProcessing=true) e
+        // AGORA não está mais (isCurrentlyProcessing=false)...
+        if (wasProcessing && !isCurrentlyProcessing) {
+          setSuccessMessage('Processamento da fila concluído! Atualizando auditoria...');
+          // O processo terminou! Recarrega a auditoria para mostrar os novos status
+          await handleRunDayAudit();
+        }
+
+        // Atualiza o rastreador
+        setWasProcessing(isCurrentlyProcessing);
+
+      } catch (err) {
+        console.error(err);
+        setError("Erro de rede ao buscar status do RPA. Verifique o console.");
+      }
+    };
+
+    // Inicia o poller imediatamente
+    fetchRpaStatus();
+
+    // Configura o intervalo para rodar a cada 5 segundos
+    const intervalId = setInterval(fetchRpaStatus, 5000);
+
+    // Função de limpeza: para o poller quando o componente "desmonta"
+    return () => clearInterval(intervalId);
+
+  }, [view, wasProcessing]); // Roda sempre que 'view' ou 'wasProcessing' mudar
+  // --- FIM DA ALTERAÇÃO ---
+
 
   const resetFlow = () => {
     setView('SELECTION'); setAuditData([]); setSelectedCompanyCode(null);
-    setError(''); setIsLoading(false); setSuccessMessage(''); // Inclui reset do successMessage
+    setError(''); setIsLoading(false); setSuccessMessage('');
   };
 
   const handleRunDayAudit = async () => {
     setIsLoading(true); setLoadingMessage('Auditando todas as empresas...'); setError(''); setSuccessMessage('');
     try {
       const response = await fetch(`${API_URL}/audit/day`, {
-        // --- CORREÇÃO APLICADA AQUI ---
-        method: 'POST', // <-- Garante que o método é POST
-        // -----------------------------
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           day: parseInt(selectedDay),
@@ -94,16 +149,20 @@ const App = () => {
         }),
       });
       const data = await response.json();
-      if (response.ok) { setAuditData(data); setView('SUMMARY'); }
-      else { setError(data.detail || 'Erro na API de auditoria.'); }
+      if (response.ok) {
+        setAuditData(data);
+        setView('SUMMARY');
+      } else {
+        setError(data.detail || 'Erro na API de auditoria.');
+      }
     } catch (err) { setError('Falha na comunicação com a API.'); }
     finally { setIsLoading(false); }
   };
 
-  // REMOVIDO handleApplyCorrections pois usamos RPA futuramente
-
   const handleImportConsignments = async (companyCodes = null) => {
-    setIsLoading(true); setLoadingMessage('Iniciando importação de consignados (RPA)...'); setError(''); setSuccessMessage('');
+    // Não usamos mais o Loading do App, o Poller cuidará disso
+    // setIsLoading(true); setLoadingMessage('Enfileirando jobs (RPA)...');
+    setError(''); setSuccessMessage('');
     try {
       const response = await fetch(`${API_URL}/rpa/import-consignments`, {
         method: 'POST',
@@ -111,15 +170,28 @@ const App = () => {
         body: JSON.stringify({ year: parseInt(selectedYear), month: parseInt(selectedMonth), company_codes: companyCodes }),
       });
       const result = await response.json();
-      if (response.ok && result.status === 'success') {
-        setSuccessMessage(result.message);
-        await handleRunDayAudit(); // Reexecuta auditoria para atualizar status
-      } else { setError(result.detail || result.message || 'Falha ao importar consignados.'); }
+
+      if (response.ok && (result.status === 'success' || result.status === 'queued')) {
+        setSuccessMessage(result.message || "Jobs de importação enfileirados!");
+
+        // --- INÍCIO DA ALTERAÇÃO (AJUSTE "POLLER") ---
+        // Aciona o poller imediatamente
+        setWasProcessing(true);
+        // Atualiza o status local (o poller vai pegar o real em 5s)
+        setRpaStatus(prev => ({ ...prev, pending: prev.pending + (companyCodes?.length || 1) }));
+        // --- FIM DA ALTERAÇÃO ---
+
+      } else {
+        setError(result.detail || result.message || 'Falha ao enfileirar jobs.');
+      }
     } catch (err) { setError('Erro de rede ao acionar a importação.'); }
-    finally { setIsLoading(false); }
+    finally {
+      // setIsLoading(false);
+    }
   };
 
   const handleGenerateReports = async () => {
+    // (Sem alterações)
     setIsLoading(true); setLoadingMessage('Acionando RPA para gerar relatórios...'); setError(''); setSuccessMessage('');
     try {
       const response = await fetch(`${API_URL}/reports/generate`, {
@@ -130,10 +202,9 @@ const App = () => {
           data: auditData.map(row => ({ matricula: row.matricula, nome: row.nome, empresaCodigo: row.empresaCodigo, empresaNome: row.empresaNome }))
         }),
       });
-      const result = await response.json(); // Espera JSON, não blob
+      const result = await response.json();
       if (response.ok && result.status === 'success') {
         setSuccessMessage(result.message || 'RPA de geração iniciado (simulado).');
-        // Não há download nesta fase, apenas confirmação
       } else { setError(result.detail || 'Falha ao acionar RPA de geração.'); }
     } catch (err) { setError('Erro de rede ao acionar geração de relatórios.'); }
     finally { setIsLoading(false); }
@@ -155,17 +226,60 @@ const App = () => {
     }, {});
   }, [auditData]);
 
+  // Função auxiliar para buscar o status (agora um objeto)
+  const getConsignmentInfo = (companyCode) => {
+    if (!Array.isArray(auditData) || auditData.length === 0) {
+      return { isImported: false, lastImport: null };
+    }
+    const companyRow = auditData.find(row => row && row.empresaCode === companyCode);
+    if (!companyRow) {
+      return { isImported: false, lastImport: null };
+    }
+    return {
+      isImported: companyRow.consignadoImportado,
+      lastImport: companyRow.ultimaImportacao // Vem da API v3.2
+    };
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 font-sans">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50"><div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between"><div className="flex items-center gap-4"><img src={logoProjecont} alt="Logo" className='w-10 h-10 rounded-md' /><h1 className="text-xl font-semibold text-gray-900">Robo Auditor RH - Projecont</h1></div></div></header>
       <main className="max-w-7xl mx-auto px-6 py-8">
         {view !== 'SELECTION' && (<button onClick={resetFlow} className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-800 mb-6"><ChevronLeft className="w-4 h-4" />Voltar ao Início</button>)}
-        {error && <ErrorScreen message={error} onRetry={resetFlow} />}
+
+        {successMessage && <SuccessAlert message={successMessage} onClose={() => setSuccessMessage('')} />}
+        {error && <ErrorAlert message={error} onClose={() => setError('')} />}
+
+        {/* --- INÍCIO DA ALTERAÇÃO (AJUSTE "POLLER") --- */}
+        {/* Mostra erros específicos do RPA (se houver) */}
+        {rpaStatus.errors.length > 0 && (
+          <ErrorAlert
+            message={`Erro no RPA (último): Empresa ${rpaStatus.errors[0].empresa_codigo} falhou. Por favor, verifique e tente novamente.`}
+            onClose={() => setRpaStatus(prev => ({ ...prev, errors: [] }))} // Limpa os erros
+          />
+        )}
+        {/* --- FIM DA ALTERAÇÃO --- */}
+
+
         {isLoading && <LoadingScreen message={loadingMessage} />}
+
         {!isLoading && !error && (
           <>
             {view === 'SELECTION' && (<SelectionView selectedDay={selectedDay} setSelectedDay={setSelectedDay} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth} selectedYear={selectedYear} setSelectedYear={setSelectedYear} onAudit={handleRunDayAudit} />)}
-            {view === 'SUMMARY' && (<SummaryView summaryData={groupedSummaryData} onSelectCompany={(code) => { setSelectedCompanyCode(code); setView('DETAIL'); }} onGenerateReports={() => setView('GENERATION')} onImportConsignments={handleImportConsignments} />)}
+
+            {view === 'SUMMARY' && (
+              <SummaryView
+                summaryData={groupedSummaryData}
+                auditData={auditData}
+                onSelectCompany={(code) => { setSelectedCompanyCode(code); setView('DETAIL'); }}
+                onGenerateReports={() => setView('GENERATION')}
+                onImportConsignments={handleImportConsignments}
+                onOpenImportModal={() => setIsImportModalOpen(true)}
+                getConsignmentInfo={getConsignmentInfo}
+                rpaStatus={rpaStatus} // <-- Passa o status da fila para o Summary
+              />
+            )}
+
             {view === 'DETAIL' && (
               <DetailView
                 companyData={auditData.filter(row => row.empresaCode === selectedCompanyCode)}
@@ -177,6 +291,15 @@ const App = () => {
             {view === 'GENERATION' && (<GenerationView onConfirm={handleGenerateReports} onBack={() => setView('SUMMARY')} companies={Object.values(groupedSummaryData)} />)}
           </>
         )}
+
+        <ImportModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          companies={Object.values(groupedSummaryData).filter(
+            company => !getConsignmentInfo(company.code).isImported
+          )}
+          onSubmit={handleImportConsignments}
+        />
       </main>
     </div>
   );
@@ -185,6 +308,7 @@ const App = () => {
 // --- Componentes de Visão ---
 
 const SelectionView = ({ selectedDay, setSelectedDay, selectedMonth, setSelectedMonth, selectedYear, setSelectedYear, onAudit }) => (
+  // (Sem alterações)
   <div>
     <div className="mb-8"><h2 className="text-3xl font-bold text-gray-900 mb-2">Auditoria de Adiantamento por Lote</h2><p className="text-gray-600">Selecione o dia de pagamento e o período para auditar todas as empresas associadas.</p></div>
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -197,59 +321,70 @@ const SelectionView = ({ selectedDay, setSelectedDay, selectedMonth, setSelected
     </div>
   </div>
 );
-// --- Componente SummaryView (CORRIGIDO) ---
-const SummaryView = ({ summaryData, auditData, onSelectCompany, onGenerateReports, onImportConsignments }) => {
 
-  // --- CORREÇÃO APLICADA AQUI ---
-  // Adiciona verificação para garantir que auditData é um array antes de usar reduce
+
+// --- INÍCIO DA ALTERAÇÃO (AJUSTE "POLLER" e "AJUSTE 3") ---
+const SummaryView = ({ summaryData, auditData, onSelectCompany, onGenerateReports, onImportConsignments, onOpenImportModal, getConsignmentInfo, rpaStatus }) => {
+
+  // Usa o 'auditData' para calcular os pendentes
   const pendingImports = useMemo(() => {
-    if (!Array.isArray(auditData) || auditData.length === 0) return 0; // <-- Verifica se é array e não está vazio
-    const importedCodes = new Set();
-    return auditData.reduce((count, row) => {
-      // Adiciona verificação extra para segurança (row pode ser inválido?)
-      if (row && row.empresaCode && !importedCodes.has(row.empresaCode) && !row.consignadoImportado) {
-        importedCodes.add(row.empresaCode);
-        return count + 1;
-      }
-      return count;
-    }, 0);
-  }, [auditData]);
+    if (!Array.isArray(auditData) || auditData.length === 0) return 0;
+    const uniqueCompanyCodes = [...new Set(auditData.map(row => row.empresaCode))];
+    return uniqueCompanyCodes.filter(code => {
+      return code && !getConsignmentInfo(code).isImported;
+    }).length;
+  }, [auditData, getConsignmentInfo]);
 
-  // --- CORREÇÃO APLICADA AQUI ---
-  // Adiciona verificação para garantir que auditData é um array antes de usar find
-  const getConsignmentStatus = (companyCode) => {
-    if (!Array.isArray(auditData) || auditData.length === 0) return false; // <-- Verifica se é array e não está vazio
-    const companyRow = auditData.find(row => row && row.empresaCode === companyCode); // Adiciona verificação extra
-    return companyRow ? companyRow.consignadoImportado : false;
+  // Formata a data (Ajuste 3)
+  const formatImportDate = (dateString) => {
+    if (!dateString) return '';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleString('pt-BR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    } catch (e) {
+      return 'Data inválida';
+    }
   };
-  // --- FIM DAS CORREÇÕES ---
+
+  // Lógica de status para o botão (Ajuste "Poller")
+  const isProcessing = rpaStatus.pending > 0 || rpaStatus.processing > 0;
+  const globalButtonText = isProcessing
+    ? `Processando... (${rpaStatus.processing}/${rpaStatus.pending + rpaStatus.processing})`
+    : `Importar Consignados (${pendingImports} pendentes)`;
 
   return (
     <div>
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <h2 className="text-3xl font-bold text-gray-900">Resumo da Auditoria</h2>
         <div className="flex items-center gap-4">
-          {/* Botão para Importar Pendentes */}
+
+          {/* Botão Global (Ajuste "Poller") */}
           <button
-            onClick={() => onImportConsignments(null)} // null = todos pendentes
-            disabled={pendingImports === 0}
-            className={`flex items-center gap-2 font-semibold py-2.5 px-6 rounded-lg shadow-sm transition-colors ${pendingImports > 0
-              ? 'bg-orange-500 hover:bg-orange-600 text-white'
-              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            onClick={onOpenImportModal}
+            disabled={isProcessing || pendingImports === 0}
+            className={`flex items-center gap-2 font-semibold py-2.5 px-6 rounded-lg shadow-sm transition-colors ${isProcessing
+              ? 'bg-gray-400 text-white cursor-wait'
+              : pendingImports > 0
+                ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
           >
-            <UploadCloud className="w-5 h-5" />
-            Importar Consignados ({pendingImports} pendentes)
+            {isProcessing ? <Loader className="w-5 h-5 animate-spin" /> : <UploadCloud className="w-5 h-5" />}
+            {globalButtonText}
           </button>
-          {/* Botão para Gerar Relatórios */}
+
           <button onClick={onGenerateReports} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 px-6 rounded-lg shadow-sm">
             Gerar Relatórios <ChevronsRight className="w-5 h-5" />
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:col-cols-2 lg:grid-cols-3 gap-6">
         {Object.values(summaryData).map(company => {
-          const isImported = getConsignmentStatus(company.code);
+          // Ajuste 3: Pega o objeto de informação completo
+          const { isImported, lastImport } = getConsignmentInfo(company.code);
           return (
             <div key={company.code} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col">
               <h3 className="font-bold text-lg text-gray-900 mb-4 truncate">{company.nome}</h3>
@@ -260,19 +395,35 @@ const SummaryView = ({ summaryData, auditData, onSelectCompany, onGenerateReport
                 <p><strong>Removidos:</strong> {company.removido}</p>
               </div>
               <div className="flex gap-2 mt-auto">
-                {/* Botão de Status/Ação do Consignado */}
+
+                {/* Ajuste 4: A cor (className) é controlada por 'isImported' */}
                 <button
-                  onClick={() => !isImported && onImportConsignments([company.code])} // Só permite clicar se não importado
-                  className={`flex-1 flex items-center justify-center gap-2 font-semibold py-2 px-4 rounded-lg text-xs transition-colors ${isImported
+                  onClick={() => !isImported && onImportConsignments([company.code])}
+                  disabled={isImported || isProcessing} // Desabilita se importado OU se algo está processando
+                  className={`flex-1 flex flex-col items-center justify-center gap-1 font-semibold py-2 px-4 rounded-lg text-xs transition-colors ${isImported
                     ? 'bg-emerald-100 text-emerald-800 cursor-default'
-                    : 'bg-red-100 hover:bg-red-200 text-red-800'
+                    : isProcessing
+                      ? 'bg-gray-100 text-gray-400 cursor-wait'
+                      : 'bg-red-100 hover:bg-red-200 text-red-800'
                     }`}
                 >
-                  {isImported ? <CheckCircle className="w-4 h-4" /> : <UploadCloud className="w-4 h-4" />}
-                  {isImported ? 'Consignado OK' : 'Importar Cons.'}
+                  <div className="flex items-center gap-2">
+                    {isImported ? <CheckCircle className="w-4 h-4" /> : <UploadCloud className="w-4 h-4" />}
+                    {isImported ? 'Consignado OK' : 'Importar Cons.'}
+                  </div>
+                  {/* Ajuste 3: Exibe a data da última importação */}
+                  {isImported && lastImport && (
+                    <span className="text-xxs font-normal mt-1 opacity-70">
+                      (Em: {formatImportDate(lastImport)})
+                    </span>
+                  )}
                 </button>
-                {/* Botão Ver Detalhes */}
-                <button onClick={() => onSelectCompany(company.code)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg text-xs">
+
+                <button
+                  onClick={() => onSelectCompany(company.code)}
+                  disabled={isProcessing} // Desabilita se algo está processando
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg text-xs disabled:opacity-50"
+                >
                   Ver Detalhes
                 </button>
               </div>
@@ -283,8 +434,11 @@ const SummaryView = ({ summaryData, auditData, onSelectCompany, onGenerateReport
     </div>
   );
 };
+// --- FIM DAS ALTERAÇÕES ---
+
 
 const DetailView = ({ companyData, companyName, empresaCodigo, onApplyCorrections, onBack }) => {
+  // (Sem alterações)
   const [filterAnalise, setFilterAnalise] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRows, setSelectedRows] = useState(new Set());
@@ -295,42 +449,25 @@ const DetailView = ({ companyData, companyName, empresaCodigo, onApplyCorrection
     setSearchTerm('');
   }, [companyData]);
 
-  // Formata moeda com arredondamento para 2 casas decimais
   const formatCurrency = (value) => {
-    const rounded = Math.round((value || 0) * 100) / 100; // Arredonda para 2 casas decimais
+    const rounded = Math.round((value || 0) * 100) / 100;
     return rounded.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
   const metrics = useMemo(() => {
     if (!companyData) return {
-      totalFunc: 0,
-      totalBruto: 0,
-      totalDescontos: 0,
-      totalFinal: 0,
-      funcionariosElegiveis: 0,
-      ok: 0,
-      divergencia: 0,
-      removidos: 0,
-      grave: 0
+      totalFunc: 0, totalBruto: 0, totalDescontos: 0, totalFinal: 0,
+      funcionariosElegiveis: 0, ok: 0, divergencia: 0, removidos: 0, grave: 0
     };
-
-    // Calcula totais com arredondamento para 2 casas decimais
     const totalBruto = Math.round(companyData.reduce((sum, row) => sum + (row.valorBruto || 0), 0) * 100) / 100;
     const totalDescontos = Math.round(companyData.reduce((sum, row) => sum + (row.desconto || 0), 0) * 100) / 100;
     const totalFinal = Math.round(companyData.reduce((sum, row) => sum + (row.valorFinal || 0), 0) * 100) / 100;
-
-    // Conta funcionários elegíveis (aqueles com status "Elegível" ou análise "OK"/"Corrigido")
     const funcionariosElegiveis = companyData.filter(row =>
-      row.status === 'Elegível' ||
-      row.analise.includes('OK') ||
-      row.analise.includes('Corrigido')
+      row.status === 'Elegível' || row.analise.includes('OK') || row.analise.includes('Corrigido')
     ).length;
 
     return {
-      totalFunc: companyData.length,
-      totalBruto,
-      totalDescontos,
-      totalFinal,
+      totalFunc: companyData.length, totalBruto, totalDescontos, totalFinal,
       funcionariosElegiveis,
       ok: companyData.filter(row => row.analise.includes('OK') || row.analise.includes('Corrigido')).length,
       divergencia: companyData.filter(row => row.analise.includes('Divergência')).length,
@@ -359,18 +496,12 @@ const DetailView = ({ companyData, companyName, empresaCodigo, onApplyCorrection
       alert('Selecione pelo menos um funcionário para aplicar correções.');
       return;
     }
-
     const confirmMessage = `⚠️ ATENÇÃO: Você está prestes a aplicar correções REAIS no banco de dados Fortes!\n\n` +
       `${selectedRows.size} funcionário(s) selecionado(s)\n` +
       `Empresa: ${companyName}\n\n` +
       `As alterações serão feitas na tabela SEP e a folha será recalculada automaticamente.\n\n` +
       `Deseja continuar?`;
-
-    if (!confirm(confirmMessage)) {
-      return;
-    }
-
-    // Chama a API real para aplicar correções
+    if (!confirm(confirmMessage)) return;
     onApplyCorrections(empresaCodigo, Array.from(selectedRows));
   };
 
@@ -450,6 +581,7 @@ const DetailView = ({ companyData, companyName, empresaCodigo, onApplyCorrection
 };
 
 const GenerationView = ({ onConfirm, onBack, companies }) => (
+  // (Sem alterações)
   <div>
     <button onClick={onBack} className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-800 mb-6"><ChevronLeft className="w-4 h-4" /></button>
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
@@ -463,5 +595,108 @@ const GenerationView = ({ onConfirm, onBack, companies }) => (
     </div>
   </div>
 );
+
+// --- INÍCIO DA ALTERAÇÃO (AJUSTE 2) ---
+// --- NOVO COMPONENTE: ImportModal (Com "Marcar Todas") ---
+const ImportModal = ({ isOpen, onClose, companies, onSubmit }) => {
+  const [selected, setSelected] = useState(new Set());
+
+  // Lógica "Marcar Todas"
+  const allCompanyCodes = useMemo(() => companies.map(c => c.code), [companies]);
+  const allSelected = selected.size > 0 && selected.size === allCompanyCodes.length;
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setSelected(new Set()); // Desmarca todos
+    } else {
+      setSelected(new Set(allCompanyCodes)); // Marca todos
+    }
+  };
+
+  const toggleCompany = (code) => {
+    const newSelected = new Set(selected);
+    if (newSelected.has(code)) {
+      newSelected.delete(code);
+    } else {
+      newSelected.add(code);
+    }
+    setSelected(newSelected);
+  };
+
+  const handleSubmit = () => {
+    onSubmit(Array.from(selected));
+    onClose();
+    setSelected(new Set()); // Limpa a seleção após o envio
+  };
+
+  // Limpa a seleção quando o modal é aberto
+  useEffect(() => {
+    if (isOpen) {
+      setSelected(new Set());
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-bold text-gray-900">Selecionar Empresas para Importar</h3>
+          <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-200">
+            <XCircle className="w-6 h-6 text-gray-500" />
+          </button>
+        </div>
+
+        {/* Lista de Checkbox */}
+        <div className="max-h-64 overflow-y-auto space-y-2 border-y py-4 my-4">
+          {/* Checkbox "Marcar Todas" */}
+          <label className="flex items-center gap-3 p-2 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer border-b">
+            <input
+              type="checkbox"
+              className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              checked={allSelected}
+              onChange={handleSelectAll}
+            />
+            <span className="font-bold text-blue-600">
+              {allSelected ? 'Desmarcar Todas' : `Marcar Todas (${allCompanyCodes.length})`}
+            </span>
+          </label>
+          {/* Lista de empresas */}
+          {companies.map(company => (
+            <label key={company.code} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                checked={selected.has(company.code)}
+                onChange={() => toggleCompany(company.code)}
+              />
+              <span className="font-medium text-gray-800">{company.nome}</span>
+            </label>
+          ))}
+        </div>
+
+        {/* Botões de Ação */}
+        <div className="flex justify-end gap-3">
+          <button onClick={onClose} className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-6 rounded-lg">
+            Cancelar
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={selected.size === 0}
+            className={`flex items-center gap-2 font-semibold py-2 px-6 rounded-lg shadow-sm transition-colors ${selected.size > 0
+              ? 'bg-blue-600 hover:bg-blue-700 text-white'
+              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }`}
+          >
+            <UploadCloud className="w-5 h-5" />
+            Importar ({selected.size})
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+// --- FIM DA ALTERAÇÃO ---
 
 export default App;
