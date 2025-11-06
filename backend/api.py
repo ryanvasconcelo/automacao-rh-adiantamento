@@ -1,14 +1,12 @@
-# api.py (Versão Corrigida - Modelos Pydantic Restaurados)
+# api.py (Versão 3.0 - Conectado à Fila de Jobs)
 
 import os
 import io
-import shutil
-import zipfile
 import pandas as pd
 import numpy as np
 import json
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Tuple
@@ -17,13 +15,14 @@ import time
 
 logger = logging.getLogger(__name__)
 
-import main
+# --- Imports do Nosso Projeto ---
+import main  #
 from src.rules_catalog import CATALOG, get_company_rule
 from src.data_extraction import fetch_all_companies
+from src.emp_ids import CODE_TO_EMP_ID  # (O Dicionário de Tradução)
+import queue_db  # <-- NOSSA NOVA CONEXÃO COM A FILA DE JOBS
 
-app = FastAPI(
-    title="RH Tools API - Auditor de Adiantamento", version="2.2.2"
-)  # Versão incrementada
+app = FastAPI(title="RH Tools API - Auditor de Adiantamento", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,79 +32,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- ARMAZENAMENTO DE STATUS (JSON) ---
-STATUS_FILE_PATH = "consignado_status.json"
-StatusKey = Tuple[int, int, str]
-ConsignadoStatusDict = Dict[str, bool]
 
-
-def _make_status_key_str(year: int, month: int, emp_id: str) -> str:
-    return f"{year}_{month:02d}_{emp_id}"
-
-
-def load_status() -> ConsignadoStatusDict:  # ... (função sem alterações)
-    if not os.path.exists(STATUS_FILE_PATH):
-        return {}
-    try:
-        with open(STATUS_FILE_PATH, "r") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            logger.warning(f"Arquivo {STATUS_FILE_PATH} corrompido.")
-            return {}
-        return data
-    except Exception as e:
-        logger.error(f"Erro ao carregar {STATUS_FILE_PATH}: {e}.")
-        return {}
-
-
-def save_status(status_dict: ConsignadoStatusDict):  # ... (função sem alterações)
-    try:
-        with open(STATUS_FILE_PATH, "w") as f:
-            json.dump(status_dict, f, indent=4)
-    except IOError as e:
-        logger.error(f"Erro ao salvar {STATUS_FILE_PATH}: {e}")
-
-
-consignado_import_status = load_status()
-
-
-# --- MODELOS Pydantic (CORRIGIDOS - Definições Completas) ---
-class AuditRequest(BaseModel):
+# --- MODELOS Pydantic (sem alterações) ---
+class AuditRequest(BaseModel):  #
     catalog_code: str
     month: int
     year: int
 
 
-class DayAuditRequest(BaseModel):
+class DayAuditRequest(BaseModel):  #
     day: int
     month: int
     year: int
 
 
-class CorrectedAuditRow(BaseModel):
+class CorrectedAuditRow(BaseModel):  #
     matricula: str
     nome: str
     empresaCodigo: int
     empresaNome: str
 
 
-class ReportGenerationRequest(BaseModel):
+class ReportGenerationRequest(BaseModel):  #
     month: int
     year: int
     data: List[CorrectedAuditRow]
 
 
-class RPAImportRequest(BaseModel):
+class RPAImportRequest(BaseModel):  #
     year: int
     month: int
-    company_codes: Optional[List[str]] = None
+    company_codes: Optional[List[str]] = None  # Códigos do CATÁLOGO (ex: "JR", "ACB")
 
 
-# --- ENDPOINTS (sem alterações lógicas a partir daqui) ---
+# --- ARMAZENAMENTO DE STATUS (REMOVIDO) ---
+# A lógica de 'consignado_status.json' foi 100% removida
+# A "fonte da verdade" agora é o banco de dados TB_RPA_JOBS.
+
+
+# --- ENDPOINTS DE AUDITORIA (Sem alterações) ---
 
 
 @app.get("/companies/grouped")
-def get_companies_grouped():  # ... (sem alterações)
+def get_companies_grouped():  #
+    # ... (código original sem alterações)
     grouped_companies: Dict[str, List[Dict[str, str]]] = {"15": [], "20": []}
     for code, rule in CATALOG.items():
         if not rule.base or not hasattr(rule.base, "window"):
@@ -118,36 +88,12 @@ def get_companies_grouped():  # ... (sem alterações)
     return grouped_companies
 
 
-@app.post("/audit")
-def run_single_audit(request: AuditRequest):  # ... (sem alterações)
-    try:
-        rule = get_company_rule(request.catalog_code)
-        if not rule.emp_id:
-            raise HTTPException(status_code=404, detail=f"...")
-        df_result = main.run(
-            empresa_codigo=str(rule.emp_id),
-            empresa_id_catalogo=request.catalog_code,
-            ano=request.year,
-            mes=request.month,
-        )
-        df_result.rename(
-            columns={
-                "ValorBrutoFortes": "valorBruto",
-                "ValorLiquidoAdiantamento": "valorFinal",
-                "ValorAdiantamentoBruto": "valorBrutoAuditado",
-            },
-            inplace=True,
-        )
-        df_result_filled = df_result.replace({pd.NaT: None, np.nan: None})
-        return df_result_filled.to_dict(orient="records")
-    except Exception as e:
-        logger.error(f"...", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"...")
-
-
 @app.post("/audit/day")
-async def run_day_audit(request: DayAuditRequest):  # ... (sem alterações)
-    target_day = str(request.day)  # <-- Esta linha agora funcionará
+async def run_day_audit(request: DayAuditRequest):  #
+    # Este endpoint agora precisa ler o status da *nossa fila*
+    # para exibir o "Consignado Importado" corretamente.
+
+    target_day = str(request.day)
     companies_to_audit = [
         (code, rule)
         for code, rule in CATALOG.items()
@@ -156,8 +102,11 @@ async def run_day_audit(request: DayAuditRequest):  # ... (sem alterações)
         and str(rule.base.window.pay_day) == target_day
         and rule.emp_id
     ]
+
+    # Busca os status de importação UMA VEZ da nossa nova tabela
+    imported_codes = get_imported_status_from_db(request.year, request.month)
+
     all_results = []
-    current_status = load_status()
     for code, rule in companies_to_audit:
         try:
             print(
@@ -172,20 +121,21 @@ async def run_day_audit(request: DayAuditRequest):  # ... (sem alterações)
             df_company_result["empresaNome"] = rule.name
             df_company_result["empresaCodigo"] = rule.emp_id
             df_company_result["empresaCode"] = rule.code
-            status_key_str = _make_status_key_str(
-                request.year, request.month, str(rule.emp_id)
+
+            # Lógica de status ATUALIZADA
+            # O status agora é se existe um job 'CONCLUIDO' para este código
+            df_company_result["consignadoImportado"] = (
+                str(rule.emp_id) in imported_codes
             )
-            df_company_result["consignadoImportado"] = current_status.get(
-                status_key_str, False
-            )
+
             all_results.append(df_company_result)
-            print(f"--- PROCESSO DE AUDITORIA CONCLUÍDO PARA {rule.name} ---")
         except Exception as e:
-            logger.error(f"...", exc_info=True)
-            print(f"Erro ao auditar a empresa {rule.name}: {e}")
+            logger.error(f"Erro ao auditar {rule.name}: {e}", exc_info=True)
             continue
+
     if not all_results:
         return []
+
     df_final = pd.concat(all_results, ignore_index=True)
     df_final.rename(
         columns={
@@ -206,128 +156,192 @@ async def run_day_audit(request: DayAuditRequest):  # ... (sem alterações)
     return df_final_filled.to_dict(orient="records")
 
 
-@app.post("/rpa/import-consignments")
-async def trigger_rpa_import_consignments(
-    request: RPAImportRequest,
-):  # ... (sem alterações)
-    print(f"...")
-    current_status = load_status()
-    empresas_para_importar = []
+# --- ENDPOINTS DE RPA (TOTALMENTE REESCRITOS) ---
+
+
+@app.post("/rpa/import-consignments", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_rpa_import_consignments(request: RPAImportRequest):
+    """
+    (Fase 3) Recebe o pedido do React e ENFILEIRA os jobs
+    na tabela TB_RPA_JOBS. Não executa o RPA.
+    """
+    print(f"Recebida solicitação de importação para {request.month}/{request.year}")
+
+    competencia = f"{request.month:02d}/{request.year}"
+
+    # 1. Obter a lista de códigos de CATÁLOGO (ex: "ACB")
+    codes_to_queue = []
     if request.company_codes:
-        empresas_para_importar = [
-            code for code in request.company_codes if CATALOG.get(code)
-        ]
+        # Botão Vermelho (Individual)
+        codes_to_queue = request.company_codes
+        print(f"Empresas especificadas: {codes_to_queue}")
     else:
-        for code, rule in CATALOG.items():
-            if not rule.emp_id:
-                continue
-            status_key_str = _make_status_key_str(
-                request.year, request.month, str(rule.emp_id)
+        # Botão Cinza (Global) - Precisamos descobrir quem *não* está na fila
+        # Esta lógica pode ser complexa, por enquanto vamos apenas enfileirar todos
+        # (O Agente pode ser inteligente e pular duplicados)
+        # TODO: Melhorar esta lógica para enfileirar apenas pendentes
+        codes_to_queue = list(CODE_TO_EMP_ID.keys())
+        print(f"Enfileirando todas as empresas do catálogo.")
+
+    if not codes_to_queue:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"status": "noop", "message": "Nenhuma empresa para enfileirar."},
+        )
+
+    # 2. Traduzir para códigos Fortes (ex: "9234") e preparar o SQL
+    jobs_para_inserir = []
+    for catalog_code in codes_to_queue:
+        fortes_code = CODE_TO_EMP_ID.get(catalog_code)
+        if not fortes_code:
+            logger.warning(
+                f"Código de catálogo não encontrado no emp_ids.py: {catalog_code}"
             )
-            if not current_status.get(status_key_str, False):
-                empresas_para_importar.append(code)
-    print(f"Empresas para importar: {empresas_para_importar}")
-    if not empresas_para_importar:
+            continue
+        # (fortes_code, competencia)
+        jobs_para_inserir.append((str(fortes_code), competencia))
+
+    if not jobs_para_inserir:
+        raise HTTPException(status_code=400, detail="Códigos de catálogo inválidos.")
+
+    # 3. Inserir no Banco de Dados da Fila (TB_RPA_JOBS)
+    # Usamos "INSERT IGNORE" (ou equivalente SQL Server) para evitar duplicados
+    # Por enquanto, uma inserção simples é suficiente.
+    conn = None
+    try:
+        conn = queue_db.get_queue_connection()
+        cursor = conn.cursor()
+
+        # SQL Server não tem "INSERT IGNORE". Precisamos verificar se já existe
+        # um job PENDENTE ou EM_PROCESSAMENTO para esta chave.
+        # (Esta é uma lógica de enfileiramento mais robusta)
+
+        sql_insert = """
+            IF NOT EXISTS (
+                SELECT 1 FROM TB_RPA_JOBS
+                WHERE empresa_codigo = %s AND competencia = %s
+                AND status IN ('PENDENTE', 'EM_PROCESSAMENTO')
+            )
+            BEGIN
+                INSERT INTO TB_RPA_JOBS (empresa_codigo, competencia, status, updated_at)
+                VALUES (%s, %s, 'PENDENTE', GETDATE())
+            END
+        """
+
+        jobs_enfileirados = 0
+        for fortes_code, comp in jobs_para_inserir:
+            # Parâmetros duplicados para a lógica IF NOT EXISTS
+            params = (fortes_code, comp, fortes_code, comp)
+            cursor.execute(sql_insert, params)
+            if cursor.rowcount > 0:
+                jobs_enfileirados += 1
+
+        conn.commit()
+
+        print(f"Jobs inseridos/atualizados na fila: {jobs_enfileirados}")
         return {
-            "status": "success",
-            "message": "Nenhuma empresa encontrada para importação.",
+            "status": "queued",
+            "message": f"{jobs_enfileirados} job(s) foram enfileirados para processamento.",
         }
-    print(">>> Iniciando SIMULAÇÃO do RPA de importação...")
-    time.sleep(5)
-    print(">>> SIMULAÇÃO do RPA concluída com sucesso.")
-    empresas_com_sucesso = empresas_para_importar
-    for code in empresas_com_sucesso:
-        rule = CATALOG.get(code)
-        if rule and rule.emp_id:
-            status_key_str = _make_status_key_str(
-                request.year, request.month, str(rule.emp_id)
-            )
-            current_status[status_key_str] = True
-            print(f"Status atualizado para importado: {rule.name}")
-    save_status(current_status)
-    return {"status": "success", "message": f"..."}
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Erro ao enfileirar jobs na TB_RPA_JOBS: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail="Erro interno ao acessar a fila de jobs."
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/rpa/status")
+async def get_rpa_status():
+    """
+    (NOVO) Lê a tabela TB_RPA_JOBS e retorna um resumo
+    para o React atualizar a UI.
+    """
+    conn = None
+    try:
+        conn = queue_db.get_queue_connection()
+        cursor = conn.cursor(as_dict=True)
+
+        # 1. Contagem de Status
+        sql_count = """
+            SELECT status, COUNT(*) as count
+            FROM TB_RPA_JOBS
+            GROUP BY status
+        """
+        cursor.execute(sql_count)
+        status_counts = {row["status"]: row["count"] for row in cursor.fetchall()}
+
+        # 2. Últimos 5 Erros
+        sql_errors = """
+            SELECT TOP 5 id, empresa_codigo, competencia, error_message, updated_at
+            FROM TB_RPA_JOBS
+            WHERE status = 'ERRO'
+            ORDER BY updated_at DESC
+        """
+        cursor.execute(sql_errors)
+        errors = cursor.fetchall()
+
+        return {
+            "pending": status_counts.get("PENDENTE", 0),
+            "processing": status_counts.get("EM_PROCESSAMENTO", 0),
+            "completed": status_counts.get("CONCLUIDO", 0),
+            "errors": errors,
+        }
+
+    except Exception as e:
+        logger.error(f"Erro ao ler status da TB_RPA_JOBS: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail="Erro interno ao ler o status da fila."
+        )
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.post("/reports/generate")
-async def trigger_rpa_generate_reports(
-    request: ReportGenerationRequest,
-):  # ... (sem alterações)
-    print(f"...")
-    empresas_a_processar = {}
-    for row in request.data:
-        if row.empresaCodigo not in empresas_a_processar:
-            empresas_a_processar[row.empresaCodigo] = {"nome": row.empresaNome}
-    lista_nomes_empresas = [info["nome"] for info in empresas_a_processar.values()]
-    print(f"Empresas incluídas na solicitação: {lista_nomes_empresas}")
-    print(">>> Iniciando SIMULAÇÃO do RPA de Geração de Relatórios...")
-    time.sleep(10)
-    print(">>> SIMULAÇÃO do RPA concluída.")
-    return {"status": "success", "message": f"..."}
-
-
-# --- Modelos Pydantic Adicionais (se não existirem) ---
-class RPAImportRequest(BaseModel):
-    year: int
-    month: int
-    company_codes: Optional[List[str]] = (
-        None  # Lista de códigos do catálogo ou None para "todos pendentes"
-    )
-
-
-# --- Novo Endpoint ---
-@app.post("/rpa/import-consignments")
-async def trigger_rpa_import_consignments(request: RPAImportRequest):
-    """
-    Aciona (atualmente simula) o RPA para importar consignados e atualiza o status.
-    """
-    print(
-        f"Recebida solicitação de importação de consignados para {request.month}/{request.year}"
-    )
-
-    empresas_para_importar = []
-
-    if request.company_codes:  # Se uma lista específica foi enviada
-        empresas_para_importar = [
-            code for code in request.company_codes if CATALOG.get(code)
-        ]
-        print(f"Empresas especificadas: {empresas_para_importar}")
-    else:  # Se for para importar "todos pendentes"
-        print("Buscando empresas com consignado pendente...")
-        for code, rule in CATALOG.items():
-            if not rule.emp_id:
-                continue  # Pula empresas sem ID mapeado
-            status_key = (request.year, request.month, str(rule.emp_id))
-            if not consignado_import_status.get(status_key, False):
-                empresas_para_importar.append(code)
-        print(f"Empresas pendentes encontradas: {empresas_para_importar}")
-
-    if not empresas_para_importar:
-        return {
-            "status": "success",
-            "message": "Nenhuma empresa encontrada para importação.",
-        }
-
-    # --- SIMULAÇÃO DA EXECUÇÃO DO RPA ---
-    print(">>> Iniciando SIMULAÇÃO do RPA de importação...")
-    import time
-
-    time.sleep(5)  # Simula o tempo que o RPA levaria
-    print(">>> SIMULAÇÃO do RPA concluída com sucesso.")
-    # ------------------------------------
-
-    # --- Em um cenário real, o script RPA retornaria quais empresas tiveram sucesso ---
-    # Para a simulação, vamos assumir que todas tiveram sucesso
-    empresas_com_sucesso = empresas_para_importar
-
-    # Atualiza o status no dicionário em memória
-    for code in empresas_com_sucesso:
-        rule = CATALOG.get(code)
-        if rule and rule.emp_id:
-            status_key = (request.year, request.month, str(rule.emp_id))
-            consignado_import_status[status_key] = True
-            print(f"Status atualizado para importado: {rule.name}")
-
+async def trigger_rpa_generate_reports(request: ReportGenerationRequest):  #
+    # Esta é uma simulação (Fase 3), podemos conectar na fila também
+    print(f"Recebida solicitação de GERAÇÃO DE RELATÓRIOS (Simulado)...")
+    # TODO: Enfileirar este job também
+    time.sleep(3)  # Simulação
     return {
         "status": "success",
-        "message": f"Importação de consignados (simulada) concluída com sucesso para {len(empresas_com_sucesso)} empresa(s).",
+        "message": f"Geração de relatórios (simulada) iniciada.",
     }
+
+
+# --- Funções Auxiliares ---
+
+
+def get_imported_status_from_db(year: int, month: int) -> set:
+    """
+    (NOVO) Busca na TB_RPA_JOBS todos os códigos de empresa
+    que têm um job 'CONCLUIDO' para a competência.
+    """
+    conn = None
+    try:
+        conn = queue_db.get_queue_connection()
+        cursor = conn.cursor()
+
+        sql = """
+            SELECT DISTINCT empresa_codigo
+            FROM TB_RPA_JOBS
+            WHERE competencia = %s AND status = 'CONCLUIDO'
+        """
+        competencia = f"{month:02d}/{year}"
+        cursor.execute(sql, (competencia,))
+
+        # Retorna um set (conjunto) para busca rápida (ex: {'9098', '9234'})
+        return {row[0] for row in cursor.fetchall()}
+
+    except Exception as e:
+        logger.error(f"Erro ao buscar status de 'CONCLUIDO': {e}", exc_info=True)
+        return set()  # Retorna um conjunto vazio em caso de erro
+    finally:
+        if conn:
+            conn.close()

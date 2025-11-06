@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { ChevronLeft, ChevronsRight, FileDown, Loader, Search, CheckSquare, Square, XCircle, CheckCircle, AlertTriangle, UploadCloud } from 'lucide-react';
 import logoProjecont from './assets/logoProjecont.jpeg';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://192.168.0.166:8000';
 
 // Componente para telas de Carregamento
 const LoadingScreen = ({ message }) => (
@@ -165,7 +165,7 @@ const App = () => {
         {!isLoading && !error && (
           <>
             {view === 'SELECTION' && (<SelectionView selectedDay={selectedDay} setSelectedDay={setSelectedDay} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth} selectedYear={selectedYear} setSelectedYear={setSelectedYear} onAudit={handleRunDayAudit} />)}
-            {view === 'SUMMARY' && (<SummaryView summaryData={groupedSummaryData} onSelectCompany={(code) => { setSelectedCompanyCode(code); setView('DETAIL'); }} onGenerateReports={() => setView('GENERATION')} />)}
+            {view === 'SUMMARY' && (<SummaryView summaryData={groupedSummaryData} onSelectCompany={(code) => { setSelectedCompanyCode(code); setView('DETAIL'); }} onGenerateReports={() => setView('GENERATION')} onImportConsignments={handleImportConsignments} />)}
             {view === 'DETAIL' && (
               <DetailView
                 companyData={auditData.filter(row => row.empresaCode === selectedCompanyCode)}
