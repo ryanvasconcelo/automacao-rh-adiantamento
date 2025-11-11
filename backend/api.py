@@ -1,4 +1,4 @@
-# api.py (Versão 3.2 - Enviando Data da Última Importação)
+# api.py (Versão 3.3 - Lógica de Fila Corrigida)
 
 import os
 import io
@@ -21,9 +21,9 @@ from src.rules_catalog import CATALOG, get_company_rule
 from src.data_extraction import fetch_all_companies
 from src.emp_ids import CODE_TO_EMP_ID
 import queue_db
-import pyodbc  # Import para o tipo de cursor
+import pyodbc
 
-app = FastAPI(title="RH Tools API - Auditor de Adiantamento", version="3.2.0")
+app = FastAPI(title="RH Tools API - Auditor de Adiantamento", version="3.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -66,12 +66,9 @@ class RPAImportRequest(BaseModel):
     company_codes: Optional[List[str]] = None
 
 
-# --- ENDPOINTS DE AUDITORIA (Com Ajuste 3) ---
-
-
+# --- ENDPOINTS DE AUDITORIA (Estável) ---
 @app.get("/companies/grouped")
 def get_companies_grouped():
-    # ... (código original sem alterações)
     grouped_companies: Dict[str, List[Dict[str, str]]] = {"15": [], "20": []}
     for code, rule in CATALOG.items():
         if not rule.base or not hasattr(rule.base, "window"):
@@ -86,7 +83,6 @@ def get_companies_grouped():
 
 @app.post("/audit/day")
 async def run_day_audit(request: DayAuditRequest):
-
     target_day = str(request.day)
     companies_to_audit = [
         (code, rule)
@@ -97,17 +93,11 @@ async def run_day_audit(request: DayAuditRequest):
         and rule.emp_id
     ]
 
-    # --- INÍCIO DA ALTERAÇÃO (AJUSTE 3 - BACKEND) ---
-    # Busca os status de importação (agora um dicionário: {codigo: data})
     import_status_map = get_imported_status_from_db(request.year, request.month)
-    # --- FIM DA ALTERAÇÃO ---
 
     all_results = []
     for code, rule in companies_to_audit:
         try:
-            print(
-                f"--- INICIANDO AUDITORIA PARA EMPRESA {rule.emp_id} ({rule.name}) ..."
-            )
             df_company_result = main.run(
                 empresa_codigo=str(rule.emp_id),
                 empresa_id_catalogo=code,
@@ -118,13 +108,9 @@ async def run_day_audit(request: DayAuditRequest):
             df_company_result["empresaCodigo"] = rule.emp_id
             df_company_result["empresaCode"] = rule.code
 
-            # --- INÍCIO DA ALTERAÇÃO (AJUSTE 3 - BACKEND) ---
-            # O status agora é se existe um job 'CONCLUIDO' para este código
             last_import_date = import_status_map.get(str(rule.emp_id))
             df_company_result["consignadoImportado"] = bool(last_import_date)
-            # Adiciona a nova coluna com a data
             df_company_result["ultimaImportacao"] = last_import_date
-            # --- FIM DA ALTERAÇÃO ---
 
             all_results.append(df_company_result)
         except Exception as e:
@@ -150,7 +136,6 @@ async def run_day_audit(request: DayAuditRequest):
         },
         inplace=True,
     )
-    # Garante que a nova coluna exista mesmo se tudo falhar
     if "ultimaImportacao" not in df_final.columns:
         df_final["ultimaImportacao"] = None
 
@@ -158,78 +143,101 @@ async def run_day_audit(request: DayAuditRequest):
     return df_final_filled.to_dict(orient="records")
 
 
-# --- ENDPOINTS DE RPA (Corrigidos para pyodbc) ---
+# --- ENDPOINTS DE RPA (Com Ajuste 3 - Lógica de Fila) ---
 
 
 @app.post("/rpa/import-consignments", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_rpa_import_consignments(request: RPAImportRequest):
     """
-    (Fase 3) Recebe o pedido do React e ENFILEIRA os jobs
-    na tabela TB_RPA_JOBS. Não executa o RPA.
+    (v3.3) Enfileira jobs na TB_RPA_JOBS.
+    Agora é inteligente e sabe quais empresas já estão na fila.
     """
     print(f"Recebida solicitação de importação para {request.month}/{request.year}")
-
     competencia = f"{request.month:02d}/{request.year}"
-
-    codes_to_queue = []
-    if request.company_codes:
-        codes_to_queue = request.company_codes
-        print(f"Empresas especificadas: {codes_to_queue}")
-    else:
-        # TODO: Esta lógica ainda é "importar todos", não "importar pendentes"
-        codes_to_queue = list(CODE_TO_EMP_ID.keys())
-        print(f"Enfileirando todas as empresas do catálogo.")
-
-    if not codes_to_queue:
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"status": "noop", "message": "Nenhuma empresa para enfileirar."},
-        )
-
-    jobs_para_inserir = []
-    for catalog_code in codes_to_queue:
-        fortes_code = CODE_TO_EMP_ID.get(catalog_code)
-        if not fortes_code:
-            logger.warning(
-                f"Código de catálogo não encontrado no emp_ids.py: {catalog_code}"
-            )
-            continue
-        jobs_para_inserir.append((str(fortes_code), competencia))
-
-    if not jobs_para_inserir:
-        raise HTTPException(status_code=400, detail="Códigos de catálogo inválidos.")
 
     conn = None
     try:
         conn = queue_db.get_queue_connection()
         cursor = conn.cursor()
 
-        # --- CORREÇÃO (Dialeto pyodbc) ---
-        sql_insert = """
-            IF NOT EXISTS (
-                SELECT 1 FROM TB_RPA_JOBS
-                WHERE empresa_codigo = ? AND competencia = ?
-                AND status IN ('PENDENTE', 'EM_PROCESSAMENTO')
+        # --- INÍCIO DA ALTERAÇÃO (Ajuste 3 - Lógica de Fila) ---
+        # 1. Pega TODOS os códigos de catálogo (ex: 'JR', 'ACB')
+        all_catalog_codes = set(CODE_TO_EMP_ID.keys())
+
+        # 2. Pega todos os jobs que JÁ ESTÃO NA FILA (PENDENTE, PROCESSANDO, CONCLUIDO)
+        #    para esta competência, e os "traduz" de volta para Código de Catálogo
+
+        # (Cria um mapa reverso: {'9098': 'JR', '9234': 'ACB'})
+        fortes_to_catalog_map = {v: k for k, v in CODE_TO_EMP_ID.items()}
+
+        sql_get_existing = (
+            "SELECT DISTINCT empresa_codigo FROM TB_RPA_JOBS WHERE competencia = ?"
+        )
+        cursor.execute(sql_get_existing, (competencia,))
+
+        # Converte os códigos Fortes (ex: '9098') de volta para códigos de catálogo (ex: 'JR')
+        existing_catalog_codes = {
+            fortes_to_catalog_map.get(row[0])
+            for row in cursor.fetchall()
+            if fortes_to_catalog_map.get(row[0])
+        }
+
+        # 3. Determina quais códigos precisam ser enfileirados
+        codes_to_queue = []
+        if request.company_codes:
+            # Botão Vermelho (Individual) ou Modal
+            codes_to_queue = request.company_codes
+            print(f"Empresas especificadas: {codes_to_queue}")
+        else:
+            # Botão Cinza (Global) - "Importar Todos os Pendentes"
+            # Pendentes = Todos - Existentes
+            codes_to_queue = list(all_catalog_codes - existing_catalog_codes)
+            print(f"Empresas pendentes (não estão na fila): {codes_to_queue}")
+        # --- FIM DA ALTERAÇÃO ---
+
+        if not codes_to_queue:
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "status": "noop",
+                    "message": "Nenhuma empresa nova para enfileirar.",
+                },
             )
-            BEGIN
-                INSERT INTO TB_RPA_JOBS (empresa_codigo, competencia, status, updated_at)
-                VALUES (?, ?, 'PENDENTE', GETDATE())
-            END
+
+        # 4. Traduzir para códigos Fortes (ex: "9234") e preparar o SQL
+        jobs_para_inserir = []
+        for catalog_code in codes_to_queue:
+            fortes_code = CODE_TO_EMP_ID.get(catalog_code)
+            if not fortes_code:
+                logger.warning(
+                    f"Código de catálogo não encontrado no emp_ids.py: {catalog_code}"
+                )
+                continue
+            jobs_para_inserir.append((str(fortes_code), competencia))
+
+        if not jobs_para_inserir:
+            raise HTTPException(
+                status_code=400, detail="Códigos de catálogo inválidos."
+            )
+
+        # 5. Inserir no Banco de Dados da Fila (TB_RPA_JOBS)
+        # (Nós não precisamos mais do "IF NOT EXISTS" porque já filtramos)
+        sql_insert = """
+            INSERT INTO TB_RPA_JOBS (empresa_codigo, competencia, status, updated_at)
+            VALUES (?, ?, 'PENDENTE', GETDATE())
         """
 
         jobs_enfileirados = 0
         for fortes_code, comp in jobs_para_inserir:
-            params = (fortes_code, comp, fortes_code, comp)
+            params = (fortes_code, comp)
             cursor.execute(sql_insert, params)
             if cursor.rowcount > 0:
                 jobs_enfileirados += 1
 
-        # conn.commit() é desnecessário se autocommit=True no pyodbc
-
-        print(f"Jobs inseridos/atualizados na fila: {jobs_enfileirados}")
+        print(f"Jobs inseridos na fila: {jobs_enfileirados}")
         return {
             "status": "queued",
-            "message": f"{jobs_enfileirados} job(s) foram enfileirados para processamento.",
+            "message": f"{jobs_enfileirados} novo(s) job(s) foram enfileirados para processamento.",
         }
 
     except Exception as e:
@@ -244,22 +252,15 @@ async def trigger_rpa_import_consignments(request: RPAImportRequest):
 
 @app.get("/rpa/status")
 async def get_rpa_status():
-    """
-    (NOVO) Lê a tabela TB_RPA_JOBS e retorna um resumo
-    para o React atualizar a UI.
-    """
     conn = None
     try:
         conn = queue_db.get_queue_connection()
-        cursor = conn.cursor()  # pyodbc não usa as_dict=True
+        cursor = conn.cursor()
 
-        # 1. Contagem de Status
         sql_count = "SELECT status, COUNT(*) as count FROM TB_RPA_JOBS GROUP BY status"
         cursor.execute(sql_count)
-        # Converte tuplas (status, count) em dicionário
         status_counts = {row[0]: row[1] for row in cursor.fetchall()}
 
-        # 2. Últimos 5 Erros
         sql_errors = """
             SELECT TOP 5 id, empresa_codigo, competencia, error_message, updated_at
             FROM TB_RPA_JOBS
@@ -267,7 +268,6 @@ async def get_rpa_status():
             ORDER BY updated_at DESC
         """
         cursor.execute(sql_errors)
-        # Converte tuplas em dicionários manualmente
         errors = [
             {
                 "id": row[0],
@@ -298,25 +298,17 @@ async def get_rpa_status():
 
 @app.post("/reports/generate")
 async def trigger_rpa_generate_reports(request: ReportGenerationRequest):
-    # Esta é uma simulação (Fase 3), podemos conectar na fila também
+    # (Simulação)
     print(f"Recebida solicitação de GERAÇÃO DE RELATÓRIOS (Simulado)...")
-    # TODO: Enfileirar este job também
-    time.sleep(3)  # Simulação
+    time.sleep(3)
     return {
         "status": "success",
         "message": f"Geração de relatórios (simulada) iniciada.",
     }
 
 
-# --- Funções Auxiliares (Com Ajuste 3) ---
-
-
-# --- INÍCIO DA ALTERAÇÃO (AJUSTE 3 - BACKEND) ---
+# --- Funções Auxiliares (Estável) ---
 def get_imported_status_from_db(year: int, month: int) -> Dict[str, object]:
-    """
-    Busca na TB_RPA_JOBS todos os códigos de empresa
-    que têm um job 'CONCLUIDO' para a competência, e retorna a ÚLTIMA data.
-    """
     conn = None
     try:
         conn = queue_db.get_queue_connection()
@@ -336,15 +328,11 @@ def get_imported_status_from_db(year: int, month: int) -> Dict[str, object]:
         competencia = f"{month:02d}/{year}"
         cursor.execute(sql, (competencia,))
 
-        # Retorna um dicionário (ex: {'9098': '2025-11-06 13:00:00', ...})
         return {row[0]: row[1] for row in cursor.fetchall()}
 
     except Exception as e:
         logger.error(f"Erro ao buscar status de 'CONCLUIDO': {e}", exc_info=True)
-        return {}  # Retorna um dicionário vazio em caso de erro
+        return {}
     finally:
         if conn:
             conn.close()
-
-
-# --- FIM DA ALTERAÇÃO ---

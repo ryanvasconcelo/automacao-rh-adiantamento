@@ -48,8 +48,12 @@ def run_integration_test():
 
         # --- Teste da Função 4: importar_consignado_empresa_ativa ---
         print("\n--- TESTANDO: Função 4 (importar_consignado_empresa_ativa)... ---")
+        # [CÓDIGO CORRIGIDO]
         if not rpa_core.importar_consignado_empresa_ativa(
-            main_win_session, TESTE_COMPETENCIA, TESTE_EMPRESA_SEGUNDA
+            app_session,
+            main_win_session,
+            TESTE_COMPETENCIA,
+            TESTE_EMPRESA_SEGUNDA,  # <-- ADICIONE 'app_session' AQUI
         ):
             raise Exception("Falha ao importar consignado. Teste abortado.")
         print("✓ SUCESSO: Importação de consignado concluída.")
