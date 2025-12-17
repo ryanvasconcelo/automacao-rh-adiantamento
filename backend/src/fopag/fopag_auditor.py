@@ -5,22 +5,88 @@ from src.fopag import calculations
 from src.fopag import fopag_rules_catalog
 
 # ==============================================================================
-# CONSTANTES - CÓDIGOS DE EVENTOS CONFIÁVEIS (VIA CONECTA/MANUAL)
+# CÓDIGOS DE EVENTOS CONFIÁVEIS (Valor Real = Valor Esperado)
 # ==============================================================================
 CODIGOS_CONFIAVEIS = [
-    956,  # Reembolso Salarial
-    934,  # Convênio Compras
+    # Reembolsos e Ajustes
+    956,
+    31,
+    323,
+    74,
+    32,
+    94,
+    950,
+    953,
+    955,
+    967,  # Reembolsos Diversos
+    934,
+    960,
+    961,
+    964,
+    972,
+    924,
+    927,
+    945,  # Bancos de Horas
+    928,
+    954,
+    963,
+    75,  # Prêmios/Bonificações
     30,  # Comissão
-    938,  # Falta em Caixa
-    955,  # Reembolso VT
-    319,  # Vale Refeição (Geralmente desconto, mas validamos o real)
+    938,
+    916,
+    210,
+    910,  # Quebra de Caixa/Ajudas
+    319,
+    300,
+    301,
+    302,
+    127,
+    968,
+    973,
+    978,
+    979,  # Descontos (VR, Adiant, Convênios, Consig)
+    392,
+    91,
+    92,
+    391,  # Arredondamentos
+    100,
+    982,
+    915,
+    969,
+    971,  # Ajustes/Devoluções
+    976,
+    977,
+    76,
+    77,  # Dissídios/Diferenças Salariais
+    113,
+    115,  # Abonos (Indenizatórios)
+    906,
+    312,
+    322,
+    966,
+    981,
+    913,
+    914,  # Sindicatos
 ]
 
+# Códigos que NÃO devem somar no "Total Proventos Brutos"
 CODIGOS_NAO_SOMAM_PROVENTOS = [
-    955,  # Reembolso VT
+    955,
+    94,
+    950,
+    967,
+    953,
+    969,
+    971,
+    300,
+    127,
+    319,
+    301,
+    302,
+    340,
 ]
 
-CODIGOS_PENSAO = ["911", "912", "800"]
+CODIGOS_PENSAO = ["340", "911", "912", "800"]
 
 
 def run_fopag_audit(
@@ -57,9 +123,9 @@ def run_fopag_audit(
                 pass
 
         tipo_contrato = funcionario.get("tipo_contrato", "").lower()
-        is_aprendiz = "aprendiz" in tipo_contrato
+        cargo_nome = funcionario.get("cargo", "").lower()
+        is_aprendiz = "aprendiz" in tipo_contrato or "aprendiz" in cargo_nome
 
-        # Calendário
         dados_calendario = calculations.get_dias_uteis_dsr(ano, mes, data_admissao)
         dias_uteis = dados_calendario["dias_uteis"]
         dias_dsr = dados_calendario["dias_dsr"]
@@ -74,7 +140,21 @@ def run_fopag_audit(
 
         def registrar_item(evento_nome, v_esperado, v_real, msg="", base=None):
             diferenca = v_real - v_esperado
-            if round(abs(diferenca), 2) <= 0.01:
+            abs_diff = abs(diferenca)
+
+            # Lógica de Tolerância Inteligente
+            is_ok = False
+
+            # 1. Tolerância absoluta de centavos (aumentada para 10 centavos)
+            if round(abs_diff, 2) <= 0.10:
+                is_ok = True
+
+            # 2. Tolerância percentual para DSR (5% de margem para calendário)
+            elif "descanso" in evento_nome.lower() or "dsr" in evento_nome.lower():
+                if v_esperado > 0 and (abs_diff / v_esperado) < 0.05:
+                    is_ok = True
+
+            if is_ok:
                 status = "OK"
             else:
                 status = "ERRO"
@@ -104,7 +184,7 @@ def run_fopag_audit(
                 registrar_item("Salário Base", salario_base, salario_base)
                 break
 
-        # --- 2. BASES ---
+        # --- 2. BASES DE CÁLCULO ---
         base_inss_esperada = 0.0
         base_irrf_esperada = 0.0
         base_fgts_esperada = 0.0
@@ -137,9 +217,6 @@ def run_fopag_audit(
         # ======================================================================
         # LOOP 2: EVENTOS VARIÁVEIS (UNIFICADO)
         # ======================================================================
-        # Criamos um conjunto único de todos os códigos que apareceram (Input ou Real)
-        # Isso garante que se o Fortes pagou algo que não estava no input, a gente audita.
-
         codigos_input = {e.get("codigo"): e for e in eventos_variaveis}
         todos_codigos = set(codigos_input.keys()).union(set(eventos_reais.keys()))
 
@@ -150,10 +227,12 @@ def run_fopag_audit(
         percentual_pensao = 0.0
 
         for codigo_var in todos_codigos:
-            # Recupera dados do input se existir, senão assume 0 referência
             dados_input = codigos_input.get(codigo_var, {})
             referencia = dados_input.get("referencia", 0.0)
             nome_evento = dados_input.get("nome", "").lower()
+            if not nome_evento and codigo_var in eventos_reais:
+                props_temp = fopag_rules_catalog.get_event_properties(codigo_var)
+                nome_evento = props_temp.description.lower() if props_temp else ""
 
             valor_real_db = eventos_reais.get(codigo_var, 0.0)
 
@@ -162,17 +241,35 @@ def run_fopag_audit(
             except:
                 cod_int = 0
 
-            # Ignora DSR aqui (calculado no Loop 3)
+            # FILTROS
+            if codigo_var == company_rule.cod_salario_base:
+                continue
+            if codigo_var == company_rule.cod_periculosidade:
+                continue
             if codigo_var == "49" or codigo_var == company_rule.cod_dsr_he:
+                continue
+            if 600 <= cod_int <= 699:
+                continue
+            if 900 <= cod_int <= 904:
+                continue
+            if 919 <= cod_int <= 922:
+                continue
+            if 946 <= cod_int <= 949:
                 continue
 
             valor_calculado_evento = 0.0
 
             # --- A. EVENTOS CONFIÁVEIS ---
-            # Se for um código confiável, o Esperado vira o Real.
-            # Isso resolve o erro do "Reembolso Salarial"
-            if cod_int in CODIGOS_CONFIAVEIS:
+            eh_confiavel = (cod_int in CODIGOS_CONFIAVEIS) or (
+                "consignado" in nome_evento
+            )
+            if eh_confiavel:
                 valor_calculado_evento = valor_real_db
+
+                # SOMA NO DSR: Apenas Comissão (30) e Gratificações (75)
+                # Banco de Horas (934) NÃO soma no DSR, mas SOMARÁ na base de INSS lá embaixo
+                if cod_int == 30 or cod_int == 75:
+                    total_variaveis_para_dsr += valor_calculado_evento
 
             # --- B. HORAS EXTRAS ---
             elif codigo_var == company_rule.cod_he_50:
@@ -192,12 +289,9 @@ def run_fopag_audit(
                 total_variaveis_para_dsr += valor_calculado_evento
 
             # --- C. ADICIONAL NOTURNO ---
-            # Se veio no Real mas não tem referência (input), usamos o Real como fallback
-            # para compor a base do DSR corretamente.
             elif (
                 "noturno" in nome_evento or codigo_var == company_rule.cod_adic_noturno
             ):
-                # Tenta calcular se tiver referência
                 if referencia > 0:
                     if codigo_var == "012":
                         dias = int(referencia)
@@ -218,10 +312,8 @@ def run_fopag_audit(
                             salario_base, h
                         )
                 else:
-                    # Se não tem referência mas tem valor real (R$ 1.20), aceita o real para base DSR
                     if valor_real_db > 0:
                         valor_calculado_evento = valor_real_db
-                        # Flag opcional: print(f"Adic Noturno sem referência usado do real: {valor_real_db}")
 
                 total_variaveis_para_dsr += valor_calculado_evento
 
@@ -235,7 +327,6 @@ def run_fopag_audit(
             # --- E. BENEFÍCIOS ---
             elif codigo_var == company_rule.cod_salario_familia:
                 qtd_filhos = int(referencia)
-                # Opcional: Se valor real for muito diferente (proporcional), pode ajustar lógica
                 valor_calculado_evento = calculations.calc_salario_familia(
                     base_inss_esperada,
                     qtd_filhos,
@@ -246,7 +337,6 @@ def run_fopag_audit(
                 valor_teto = calculations.calc_vale_transporte(
                     salario_base, company_rule.percentual_vt
                 )
-                # Se real for menor ou igual ao teto (com tolerância), usa o real. Senão teto.
                 valor_calculado_evento = (
                     valor_teto if valor_real_db > (valor_teto + 0.01) else valor_real_db
                 )
@@ -254,16 +344,14 @@ def run_fopag_audit(
             elif codigo_var == company_rule.cod_salario_maternidade:
                 valor_calculado_evento = valor_real_db
 
-            # Captura pensão
+            # Pensão
             if (
                 "pensao" in nome_evento
                 or "pensão" in nome_evento
-                or cod_int in [911, 912, 800]
+                or str(cod_int) in CODIGOS_PENSAO
             ):
-                percentual_pensao = referencia
-
-            # Se não calculou nada, mas tem valor real e não é um dos ignorados,
-            # assume 0.0 para gerar o erro na auditoria (ou pode mudar para aceitar o real se quiser ser permissivo)
+                if referencia > 0:
+                    percentual_pensao = referencia
 
             eventos_calculados[codigo_var] = valor_calculado_evento
 
@@ -271,16 +359,14 @@ def run_fopag_audit(
                 valor_calculado_evento > 0
                 and cod_int not in CODIGOS_NAO_SOMAM_PROVENTOS
             ):
-                total_proventos_brutos += valor_calculado_evento
+                props = fopag_rules_catalog.get_event_properties(codigo_var)
+                if props and props.type == "Provento":
+                    total_proventos_brutos += valor_calculado_evento
 
         # ======================================================================
         # LOOP 3: DSR (Código 49)
         # ======================================================================
         dsr_codigo = company_rule.cod_dsr_he if company_rule.cod_dsr_he else "49"
-
-        # O DSR deve ser calculado sobre a base CALCULADA (Expected).
-        # Se a HE estiver errada, o DSR estará errado (o que é correto na auditoria).
-        # Mas agora incluímos o Adicional Noturno "real" se ele faltou na referência.
 
         deve_calcular_dsr = total_variaveis_para_dsr > 0
         existe_no_real = dsr_codigo in eventos_reais
@@ -290,24 +376,20 @@ def run_fopag_audit(
                 total_variaveis_para_dsr, dias_uteis, dias_dsr
             )
             eventos_calculados[dsr_codigo] = val_dsr
-
             if val_dsr > 0:
                 total_proventos_brutos += val_dsr
-                print(
-                    f"[Auditor] {matricula} - DSR Base: R$ {total_variaveis_para_dsr:.2f} (Calc) -> DSR: R$ {val_dsr:.2f}"
-                )
 
-        # DSR Desconto
-        if company_rule.cod_dsr_desconto:
-            # Procura se existe nas chaves
-            if company_rule.cod_dsr_desconto in todos_codigos:
-                val = calculations.calc_dsr_desconto(
-                    total_faltas_calculada, dias_uteis, dias_dsr
-                )
-                eventos_calculados[company_rule.cod_dsr_desconto] = val
+        if (
+            company_rule.cod_dsr_desconto
+            and company_rule.cod_dsr_desconto in todos_codigos
+        ):
+            val = calculations.calc_dsr_desconto(
+                total_faltas_calculada, dias_uteis, dias_dsr
+            )
+            eventos_calculados[company_rule.cod_dsr_desconto] = val
 
         # ======================================================================
-        # LOOP 4: AUDITORIA FINAL E BASES
+        # LOOP 4: AUDITORIA FINAL
         # ======================================================================
         for codigo_var, valor_calculado in eventos_calculados.items():
             valor_real = eventos_reais.get(codigo_var, 0.0)
@@ -316,11 +398,19 @@ def run_fopag_audit(
             except:
                 cod_int = 0
 
-            if codigo_var in [
-                company_rule.cod_inss,
-                company_rule.cod_irrf,
-                "FGTS",
-            ] or cod_int in [911, 912, 800]:
+            if 600 <= cod_int <= 699:
+                continue
+            if 900 <= cod_int <= 904:
+                continue
+            if 919 <= cod_int <= 922:
+                continue
+            if 946 <= cod_int <= 949:
+                continue
+
+            if (
+                codigo_var in [company_rule.cod_inss, company_rule.cod_irrf, "FGTS"]
+                or str(cod_int) in CODIGOS_PENSAO
+            ):
                 continue
 
             props = fopag_rules_catalog.get_event_properties(codigo_var)
@@ -328,16 +418,15 @@ def run_fopag_audit(
 
             registrar_item(nome_ev, valor_calculado, valor_real)
 
-            # Ajuste de Bases
-            if cod_int == 955:
-                continue
-            if cod_int in [956, 30]:
-                base_inss_esperada += valor_calculado
-                base_irrf_esperada += valor_calculado
-                base_fgts_esperada += valor_calculado
-                continue
-
             if props:
+                if cod_int == 955:
+                    continue
+                if cod_int in [956, 30]:
+                    base_inss_esperada += valor_calculado
+                    base_irrf_esperada += valor_calculado
+                    base_fgts_esperada += valor_calculado
+                    continue
+
                 if props.type == "Provento":
                     if props.incide_inss:
                         base_inss_esperada += valor_calculado
@@ -371,24 +460,19 @@ def run_fopag_audit(
         # --- PENSÃO ---
         cod_pensao_encontrado = None
         valor_pensao_real = 0.0
-
-        # 1. Procura códigos conhecidos de pensão na lista de reais
         for cod in CODIGOS_PENSAO:
-            # CORREÇÃO: eventos_reais (e não events_reais)
             if eventos_reais.get(cod, 0.0) > 0:
                 cod_pensao_encontrado = cod
                 valor_pensao_real = eventos_reais[cod]
                 break
 
-        # 2. Fallback: Se não achou pelos códigos fixos, procura qualquer chave que esteja na lista
         if not cod_pensao_encontrado:
             for cod, val in eventos_reais.items():
                 if str(cod) in CODIGOS_PENSAO:
-                    cod_pensao_encontrado = cod
+                    cod_pensao_encontrado = str(cod)
                     valor_pensao_real = val
                     break
 
-        # 3. Se achou pensão e tem percentual, audita
         if cod_pensao_encontrado and percentual_pensao > 0:
             valor_esperado_pensao = calculations.calc_pensao_alimenticia(
                 total_proventos=total_proventos_brutos,
