@@ -43,7 +43,7 @@ EVENT_CATALOG: Dict[str, EventProperties] = {
     "16": EventProperties("16", "Insalubridade", "Provento", True, True, True),
     "17": EventProperties("17", "Anuênio", "Provento", True, True, True),
     "30": EventProperties("30", "Comissões", "Provento", True, True, True),
-    "31": EventProperties("31", "Reembolso salarial", "Provento", True, True, True),
+    "31": EventProperties("31", "Quebra de Caixa", "Provento", True, True, True),
     "32": EventProperties("32", "Reembolso Gorjeta", "Provento", False, False, False),
     "49": EventProperties(
         "49", "Descanso Semanal Remunerado", "Provento", True, True, True
@@ -57,7 +57,7 @@ EVENT_CATALOG: Dict[str, EventProperties] = {
     "74": EventProperties(
         "74", "Reembolso de Gratificação", "Provento", False, False, False
     ),
-    "75": EventProperties("75", "Bonificação.", "Provento", True, True, True),
+    "75": EventProperties("75", "Bonificação.", "Provento", False, False, False),
     "76": EventProperties(
         "76", "Dif.salarial do Dissidio ref. 06.2024", "Provento", True, True, True
     ),
@@ -71,9 +71,7 @@ EVENT_CATALOG: Dict[str, EventProperties] = {
         "89", "Líquido de Adiantamento de 13º Salário", "Provento", False, False, False
     ),
     "90": EventProperties("90", "Líquido Negativo", "Provento", False, False, False),
-    "91": EventProperties(
-        "91", "Arredondamento (Provento)", "Provento", False, False, False
-    ),
+    "91": EventProperties("91", "Arredondamento", "Provento", False, False, False),
     "92": EventProperties(
         "92", "Arredondamento Compensação (Provento)", "Provento", False, False, False
     ),
@@ -153,6 +151,7 @@ EVENT_CATALOG: Dict[str, EventProperties] = {
     "302": EventProperties(
         "302", "Assistência Médica - Desconto", "Desconto", False, False, False
     ),
+    "305": EventProperties("305", "Atrasos", "Desconto", True, True, True),
     "310": EventProperties("310", "INSS", "Desconto", False, False, False),
     "311": EventProperties("311", "IRRF", "Desconto", False, False, False),
     "312": EventProperties(
@@ -162,9 +161,9 @@ EVENT_CATALOG: Dict[str, EventProperties] = {
     "315": EventProperties(
         "315", "Adiantamento de gorjeta", "Desconto", False, False, False
     ),
-    "319": EventProperties("319", "Vale Refeição", "Desconto", False, False, False),
+    # "319": EventProperties("319", "Vale Refeição", "Desconto", False, False, False),
     "320": EventProperties("320", "Vale-Transporte", "Desconto", False, False, False),
-    "321": EventProperties("321", "Falta", "Desconto", True, True, True),
+    "321": EventProperties("321", "Faltas em Horas", "Desconto", True, True, True),
     "322": EventProperties(
         "322", "Mensalidade Sindical", "Desconto", False, False, False
     ),
@@ -176,7 +175,7 @@ EVENT_CATALOG: Dict[str, EventProperties] = {
     "340": EventProperties(
         "340", "Pensão Alimentícia (1)", "Desconto", False, True, False
     ),
-    "349": EventProperties("349", "DSR Desconto", "Desconto", True, True, True),
+    "349": EventProperties("349", "DSR s/ Faltas", "Desconto", True, True, True),
     "390": EventProperties(
         "390", "Líquido Negativo Compensação", "Desconto", False, False, False
     ),
@@ -184,7 +183,7 @@ EVENT_CATALOG: Dict[str, EventProperties] = {
         "391", "Arredondamento (Desconto)", "Desconto", False, False, False
     ),
     "392": EventProperties(
-        "392", "Arredondamento Compensação (Desconto)", "Desconto", False, False, False
+        "392", "Arredondamento (Desc)", "Desconto", False, False, False
     ),
     "450": EventProperties(
         "450",
@@ -332,7 +331,7 @@ EVENT_CATALOG: Dict[str, EventProperties] = {
     "924": EventProperties(
         "924", "Quitação Banco de Horas 2019", "Provento", False, False, False
     ),
-    "925": EventProperties("925", "Falta em Horas", "Desconto", True, True, True),
+    "319": EventProperties("319", "Faltas em Horas", "Desconto", True, True, True),
     "926": EventProperties(
         "926", "Saldo Banco de Horas Negativo", "Desconto", True, True, True
     ),
@@ -504,10 +503,13 @@ class FopagCompanyRule:
     cod_adic_noturno: str = "12"
     cod_periculosidade: str = "13"
     cod_desconto_adiantamento: str = "300"
-    cod_faltas: str = "321"
+    cod_faltas: str = "321"  # Faltas em Dias
+    cod_faltas_em_horas: str = "319"  # Faltas em Horas
     cod_dsr_desconto: str = "349"
     cod_vale_transporte: str = "320"
     cod_vale_refeicao: str = "319"
+    cod_salario_familia: str = "306"
+    cod_salario_maternidade: str = "3"
     cod_salario_familia: str = "10"
     cod_salario_maternidade: str = "8"
     cod_reembolso_salarial: Optional[int] = None
@@ -520,6 +522,10 @@ COMPANY_CATALOG: Dict[str, FopagCompanyRule] = {
         calcula_insalubridade=False,
         valor_cota_salario_familia=65.00,
     ),
+    # --- NOVA EMPRESA ADICIONADA ---
+    # A CICLISTA (Código 2056)
+    # Assumindo regras padrão. Se tiver algo diferente, altere aqui.
+    "2056": FopagCompanyRule(),
     "CMD": FopagCompanyRule(percentual_vt=0.04),
 }
 

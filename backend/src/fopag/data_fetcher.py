@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict, Optional
-from src.database import get_connection  # Reutilizamos sua conexão existente
+from src.database import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -45,39 +45,41 @@ def get_folha_id(empresa_codigo: str, mes: int, ano: int) -> Optional[int]:
 
 def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
     """
-    Busca todos os funcionários e seus eventos da tabela EFP (Calculada).
+    Busca dados da Folha Mensal.
+    Usa EPG.AdmissaoData e EPG.Categoria (Substituto de Vinculo).
     """
     conn = get_connection()
     cursor = conn.cursor(as_dict=True)
 
     try:
-        # A Query Unificada (CORRIGIDA - REMOVIDO INCIDÊNCIAS)
         sql = """
             SELECT 
                 -- Dados do Funcionário
                 EPG.Codigo AS Matricula,
                 EPG.Nome AS Nome,
+                EPG.AdmissaoData AS DataAdmissao, -- <--- CORRIGIDO (Conforme sua indicação)
+                EPG.Categoria AS CodigoVinculo,   -- <--- ALTERADO: Usando Categoria (já que Vinculo falhou)
                 
                 -- Dados do Evento
                 EFP.EVE_Codigo AS Codigo,
                 EVE.NomeApr AS Descricao,
-                EVE.ProvDesc AS Tipo, -- 1=Provento, 2=Desconto
+                EVE.ProvDesc AS Tipo, 
                 EFP.Valor AS Valor,
                 EFP.Referencia AS Referencia
 
-                -- REMOVI AS COLUNAS 'IncideINSS', ETC. QUE DAVAM ERRO
-
             FROM EFO (NOLOCK)
+            
             INNER JOIN EPG (NOLOCK) 
                 ON EFO.EMP_Codigo = EPG.EMP_Codigo 
                 AND EFO.EPG_Codigo = EPG.Codigo
+            
             LEFT JOIN EFP (NOLOCK) 
                 ON EFO.EMP_Codigo = EFP.EMP_Codigo 
                 AND EFO.FOL_Seq = EFP.EFO_FOL_Seq 
                 AND EFO.EPG_Codigo = EFP.EFO_EPG_Codigo
             LEFT JOIN EVE (NOLOCK) 
                 ON EFP.EMP_Codigo = EVE.EMP_Codigo 
-                AND EFP.EVE_CODIGO = EVE.CODIGO -- Ajuste de join por precaução
+                AND EFP.EVE_CODIGO = EVE.CODIGO
 
             WHERE 
                 EFO.EMP_Codigo = %s
@@ -91,16 +93,36 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
         rows = cursor.fetchall()
 
         # --- PROCESSAMENTO ---
-
         funcionarios_map = {}
 
+        # Códigos de Aprendiz:
+        # '103': Aprendiz contratado pelo empregador (Padrão eSocial)
+        # '55'/'56': Padrão antigo/RAIS (Mantidos por segurança)
+        CODIGOS_APRENDIZ = ["103", "55", "56", "07"]
+
         for row in rows:
-            matricula = str(row["Matricula"]).strip()  # Garante string limpa
+            matricula = str(row["Matricula"]).strip()
 
             if matricula not in funcionarios_map:
+                # 1. Identificação via Categoria/Vinculo
+                # Converte para string para garantir comparação
+                vinculo = (
+                    str(row["CodigoVinculo"]).strip()
+                    if row["CodigoVinculo"] is not None
+                    else ""
+                )
+
+                if vinculo in CODIGOS_APRENDIZ:
+                    cargo_detectado = "Jovem Aprendiz"
+                else:
+                    cargo_detectado = "Funcionario Padrão"
+
                 funcionarios_map[matricula] = {
                     "matricula": matricula,
                     "nome": str(row["Nome"]).strip(),
+                    "data_admissao": row["DataAdmissao"],
+                    "cargo": cargo_detectado,  # Auditor lê isso para definir FGTS 2%
+                    "tipo_contrato": vinculo,
                     "dependentes": 0,
                     "proventos_base": [],
                     "eventos_variaveis_referencia": [],
@@ -109,13 +131,10 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
 
             func_data = funcionarios_map[matricula]
 
-            # --- NORMALIZAÇÃO CRÍTICA ---
-            # 1. Converte para int para matar zeros a esquerda (011 -> 11)
-            # 2. Converte para string para bater com o catálogo ("11")
+            # --- NORMALIZAÇÃO ---
             try:
                 codigo_limpo = str(int(row["Codigo"]))
             except ValueError:
-                # Caso o código tenha letras, usa apenas o strip
                 codigo_limpo = str(row["Codigo"]).strip()
 
             valor = float(row["Valor"])
@@ -123,22 +142,17 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                 float(row["Referencia"]) if row["Referencia"] is not None else 0.0
             )
 
-            # 1. Popula o dicionário de "Resultados Reais"
+            # 2. Popula Eventos Reais
             func_data["eventos_calculados_fortes"][codigo_limpo] = valor
 
-            # 2. Classifica para as listas de cálculo
-
-            # Salário Base (11) ou Periculosidade (13) -> Base Fixa
-            if codigo_limpo in ["11", "13"]:
+            # 3. Classifica para cálculo
+            if codigo_limpo in ["11", "13", "31"]:
                 func_data["proventos_base"].append(
                     {"codigo": codigo_limpo, "valor": valor}
                 )
-
-            # Se tem referência > 0, geralmente é variável (HE, Faltas)
-            # MAS ignoramos se já foi classificado como base (para não duplicar)
-            elif referencia > 0:
+            elif referencia > 0 or codigo_limpo in ["30", "75", "928"]:
                 func_data["eventos_variaveis_referencia"].append(
-                    {"codigo": codigo_limpo, "referencia": referencia}
+                    {"codigo": codigo_limpo, "referencia": referencia, "valor": valor}
                 )
 
         return list(funcionarios_map.values())

@@ -26,22 +26,19 @@ DIVISOR_HORA_PADRAO = 220.0
 PERCENTUAL_DSR_PLACEHOLDER = 0.20
 
 # --- CONSTANTES PARA SALÁRIO FAMÍLIA ---
-TETO_SALARIO_FAMILIA = 1819.26
-VALOR_COTA_SALARIO_FAMILIA = 62.04
+TETO_SALARIO_FAMILIA = 1906.04
+VALOR_COTA_SALARIO_FAMILIA = 65.00
 
 
 # ==============================================================================
-# HELPERS (CONVERSÃO DE TEMPO)
+# HELPERS (CONVERSÃO E ARREDONDAMENTO)
 # ==============================================================================
+
+
 def time_to_decimal(entrada) -> float:
     """
     Converte referências de tempo para decimal (horas).
-
-    Exemplos:
-        "00:30" -> 0.5 (30 minutos = 0.5 horas)
-        "01:15" -> 1.25 (1 hora e 15 minutos)
-        30 -> 0.5 (assume minutos, converte para horas)
-        1.5 -> 1.5 (já está em horas decimais)
+    Ex: "00:30" -> 0.5
     """
     try:
         if isinstance(entrada, (float, int)):
@@ -68,15 +65,22 @@ def time_to_decimal(entrada) -> float:
         return 0.0
 
 
+def truncate(number, digits) -> float:
+    """
+    Trunca um número para uma quantidade específica de casas decimais
+    sem arredondar para cima.
+    Ex: truncate(150.058, 2) -> 150.05 (round daria 150.06)
+    """
+    stepper = 10.0**digits
+    return math.trunc(stepper * number) / stepper
+
+
 # ==============================================================================
 # LÓGICA DE CALENDÁRIO
 # ==============================================================================
 def get_dias_uteis_dsr(ano: int, mes: int, data_admissao: date = None) -> dict:
     """
-    Calcula dias úteis e DSR (Domingos + Feriados) considerando:
-    - Calendário do Amazonas (AM) + Feriados de Manaus
-    - Regra de admissão (dias reais vs 30 dias)
-    - Sobreposição (Feriado no Domingo conta 1 só)
+    Calcula dias úteis e DSR (Domingos + Feriados) considerando feriados de Manaus/AM.
     """
     feriados = holidays.Brazil(state="AM", years=ano)
     feriados.append({date(ano, 10, 24): "Aniversário de Manaus"})
@@ -130,7 +134,7 @@ def get_dias_uteis_dsr(ano: int, mes: int, data_admissao: date = None) -> dict:
 
 
 def calc_inss(salario_bruto: float) -> float:
-    """Calcula o valor do INSS com base no salário bruto."""
+    """Calcula o valor do INSS (TRUNCANDO na 2ª casa)."""
     if salario_bruto >= 7786.02:
         return INSS_TETO_2025
 
@@ -144,7 +148,8 @@ def calc_inss(salario_bruto: float) -> float:
         limite, aliquota, deducao = INSS_TABLE_2025[-1]
         inss_calculado = (salario_bruto * aliquota) - deducao
 
-    final_value = round(inss_calculado, 2)
+    # ALTERAÇÃO: Usar truncate para bater com o Fortes
+    final_value = truncate(inss_calculado, 2)
     print(f"[Cálculo] INSS: Base R$ {salario_bruto:.2f}, Calculado R$ {final_value}")
     return final_value
 
@@ -152,7 +157,7 @@ def calc_inss(salario_bruto: float) -> float:
 def calc_irrf(
     base_bruta_irrf: float, inss_descontado: float, dependentes: int
 ) -> float:
-    """Calcula o valor do IRRF."""
+    """Calcula o valor do IRRF (Arredondamento padrão)."""
     deducao_dependentes = dependentes * IRRF_DEDUCAO_DEPENDENTE_2025
     base_de_calculo_irrf = base_bruta_irrf - inss_descontado - deducao_dependentes
 
@@ -172,10 +177,11 @@ def calc_irrf(
 
 def calc_fgts(base_de_calculo_fgts: float, is_aprendiz: bool = False) -> float:
     """
-    Calcula o FGTS. Se for aprendiz, alíquota é 2%.
+    Calcula o FGTS (TRUNCANDO na 2ª casa).
     """
     aliquota = 0.02 if is_aprendiz else 0.08
-    fgts_calculado = round(base_de_calculo_fgts * aliquota, 2)
+    # ALTERAÇÃO: Truncar para evitar arredondamento para cima em dízimas
+    fgts_calculado = truncate(base_de_calculo_fgts * aliquota, 2)
 
     tipo = "Aprendiz (2%)" if is_aprendiz else "Normal (8%)"
     print(
@@ -226,7 +232,6 @@ def calc_he_100(salario_base: float, total_horas: float) -> float:
 def calc_adicional_noturno(salario_base: float, total_horas: float) -> float:
     """
     Calcula o valor do Adicional Noturno (20% sobre a hora normal).
-    Fórmula correta: (Salário-Hora * 0.20) * Horas
     """
     salario_hora = _get_salario_hora(salario_base)
     valor_adicional = (salario_hora * 0.20) * total_horas
@@ -244,7 +249,6 @@ def calc_adicional_noturno_012(
 ) -> float:
     """
     Calcula o Adicional Noturno 012 (incide sobre salário contratual).
-    Fórmula: (Salário Base / Dias Úteis) * Dias Trabalhados * 0.20
     """
     if dias_uteis == 0:
         return 0.0
@@ -263,7 +267,6 @@ def calc_adicional_noturno_012(
 def calc_adicional_noturno_050(total_horas: float, valor_hora: float) -> float:
     """
     Calcula o Adicional Noturno 050 (incide sobre horas trabalhadas).
-    Fórmula: Horas Noturnas * Valor Hora * 0.20
     """
     valor_adicional = total_horas * valor_hora * 0.20
 
@@ -295,9 +298,6 @@ def calc_periculosidade(salario_base: float) -> float:
 def calc_dsr(base_valor: float, dias_uteis: int, dias_dsr: int) -> float:
     """
     Calcula o DSR (Descanso Semanal Remunerado) - Código 49.
-
-    DSR único que incide sobre variáveis (HE, Adic. Noturno, etc).
-    Fórmula: (Valor Base / Dias Úteis) * Dias DSR
     """
     if base_valor <= 0 or dias_uteis == 0:
         return 0.0
@@ -317,7 +317,6 @@ def calc_dsr_desconto(
 ) -> float:
     """
     Calcula o Desconto de DSR com base no valor total das Faltas.
-    Usa a mesma lógica proporcional do DSR positivo.
     """
     if valor_total_faltas <= 0 or dias_uteis == 0:
         return 0.0
@@ -357,7 +356,6 @@ def calc_salario_familia(
 ) -> float:
     """
     Calcula o Salário Família.
-    Aceita um 'valor_cota' opcional para empresas que pagam acima da lei.
     """
     if qtd_filhos <= 0:
         return 0.0
@@ -370,7 +368,7 @@ def calc_salario_familia(
         return round(valor_total, 2)
     else:
         print(
-            f"[Cálculo] Sal. Família: Renda R$ {remuneracao_mensal:.2f} > Teto. Não paga."
+            f"[Cálculo] Sal. Família: Renda R$ {remuneracao_mensal:.2f} > Teto ({TETO_SALARIO_FAMILIA}). Não paga."
         )
         return 0.0
 
@@ -390,11 +388,6 @@ def calc_pensao_alimenticia(
 ) -> float:
     """
     Calcula a Pensão Alimentícia conforme o caso selecionado.
-
-    Casos:
-        1: Proventos Brutos × %
-        2: (Proventos - INSS - IRRF) × %
-        3: Salário Base × %
     """
     pct = percentual / 100.0 if percentual > 1.0 else percentual
 
