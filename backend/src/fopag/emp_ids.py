@@ -10,11 +10,6 @@ COMPANY_DB_MAP: Dict[str, str] = {
 }
 
 
-def get_db_company_code(frontend_code: str) -> Optional[str]:
-    """
-    Retorna o código do banco de dados para a empresa solicitada.
-    Retorna None se a empresa não estiver permitida.
-    """
-    return COMPANY_DB_MAP.get(
-        str(frontend_code).upper()
-    )  # Garante uppercase por segurança
+def get_db_company_code(frontend_code: str) -> str:
+
+    return str(frontend_code).upper()

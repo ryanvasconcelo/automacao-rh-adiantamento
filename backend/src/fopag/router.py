@@ -1,134 +1,135 @@
-# No arquivo: backend/src/fopag/router.py
+# backend/src/fopag/router.py
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 
-# Importa nossos componentes
-from . import fopag_rules_catalog
+# --- IMPORTAÇÕES CERTAS ---
+# O ponto (.) significa "desta mesma pasta"
 from . import fopag_auditor
 from . import data_fetcher
+from . import fopag_rules_catalog
 
-# Importa o mapa de IDs atualizado
-from src.emp_ids import CODE_TO_EMP_ID
+# Importa o mapa de IDs da pasta src (nível acima)
+try:
+    from src.emp_ids import CODE_TO_EMP_ID
+except ImportError:
+    CODE_TO_EMP_ID = {}
 
-router = APIRouter(prefix="/api/v1/fopag", tags=["FOPAG - Auditoria"])
-
-# --- MODELOS ---
-
-
-class FopagManualAuditRequest(BaseModel):
-    company_code: str
-    employee_data: list
+# CORREÇÃO AQUI: Removemos o prefixo porque o server.py já coloca ele
+router = APIRouter(tags=["FOPAG - Auditoria"])
 
 
-# Modelo para auditoria REAL (Automática)
+# --- MODELOS DE DADOS ---
+class CompanySchema(BaseModel):
+    codigo: str
+    nome: str
+
+
 class FopagRealAuditRequest(BaseModel):
-    company_code: str  # Ex: "JR" ou "2056"
+    empresa_id: str
     month: int
     year: int
-    caso_pensao: Optional[int] = 2  # <--- NOVO CAMPO (Padrão 2)
+    pension_rule: Optional[str] = "2"
 
 
 # --- ENDPOINTS ---
 
 
-@router.get("/catalog/events")
-async def get_event_catalog():
-    return fopag_rules_catalog.EVENT_CATALOG
+@router.get("/companies")
+def get_active_companies():
+    """Busca lista de empresas direto do SQL para o Dropdown"""
+    print(">>> Buscando empresas no banco...")
+    conn = data_fetcher.get_connection()
+    if not conn:
+        return []
 
+    try:
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute("SELECT Codigo, Nome FROM EMP (NOLOCK) ORDER BY Nome")
+        rows = cursor.fetchall()
 
-@router.get("/catalog/rules/{company_code}")
-async def get_company_rules(company_code: str):
-    return fopag_rules_catalog.get_company_rule(company_code)
+        lista = []
+        for row in rows:
+            try:
+                c_id = str(row["Codigo"]).strip()
+                if "." in c_id:
+                    c_id = str(int(float(c_id)))
 
+                lista.append({"id": c_id, "name": str(row["Nome"]).strip()})
+            except:
+                continue
 
-@router.post("/audit/manual")
-async def run_manual_audit(request: FopagManualAuditRequest):
-    from datetime import date
-
-    hoje = date.today()
-    divergencias = fopag_auditor.run_fopag_audit(
-        company_code=request.company_code,
-        employee_payroll_data=request.employee_data,
-        ano=hoje.year,
-        mes=hoje.month,
-    )
-    return {"divergencias": divergencias}
+        print(f">>> {len(lista)} empresas carregadas.")
+        return lista
+    except Exception as e:
+        print(f"Erro ao listar empresas: {e}")
+        return []
+    finally:
+        conn.close()
 
 
 @router.post("/audit/database")
-async def run_database_audit(request: FopagRealAuditRequest):
+def run_database_audit(request: FopagRealAuditRequest):
     """
-    Auditoria Real Conectada ao Banco de Dados.
+    Executa a auditoria usando o FOPAG_AUDITOR (O arquivo correto)
     """
+    company_code = request.empresa_id
     print(
-        f"[Router] Iniciando auditoria via DB para {request.company_code} - {request.month}/{request.year}"
+        f"\n>>> INICIANDO AUDITORIA PARA: {company_code} - {request.month}/{request.year}"
     )
 
-    # Passo A: Traduzir Código (JR -> 9098, 2056 -> 2056)
-    # Pega do arquivo src/emp_ids.py
-    fortes_empresa_id = CODE_TO_EMP_ID.get(str(request.company_code))
+    # 1. Tenta achar ID mapeado ou usa o próprio
+    fortes_id = CODE_TO_EMP_ID.get(company_code.upper(), company_code)
 
-    if not fortes_empresa_id:
-        # Se não achou no map, tenta usar o próprio código se for numérico (fallback)
-        if str(request.company_code).isdigit():
-            fortes_empresa_id = str(request.company_code)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Empresa '{request.company_code}' não encontrada no mapeamento (emp_ids.py).",
-            )
-
-    # Passo B: Descobrir qual é a folha (Seq)
+    # 2. Busca o ID Sequencial da Folha (SQL)
     folha_seq = data_fetcher.get_folha_id(
-        empresa_codigo=str(fortes_empresa_id), mes=request.month, ano=request.year
+        empresa_codigo=str(fortes_id), mes=request.month, ano=request.year
     )
 
     if not folha_seq:
         raise HTTPException(
             status_code=404,
-            detail=f"Nenhuma folha mensal encontrada para {request.company_code} em {request.month}/{request.year}.",
+            detail=f"Folha Mensal não encontrada no Fortes para {request.month}/{request.year}.",
         )
 
-    print(f"[Router] Folha encontrada. Seq: {folha_seq}")
-
-    # Passo C: Buscar os dados (A Mágica do SQL)
+    # 3. Busca os dados dos funcionários (SQL)
     try:
-        dados_reais = data_fetcher.fetch_payroll_data(
-            empresa_codigo=str(fortes_empresa_id), folha_seq=folha_seq
+        dados_folha = data_fetcher.fetch_payroll_data(
+            empresa_codigo=str(fortes_id), folha_seq=folha_seq
         )
     except Exception as e:
-        print(f"Erro no fetch: {e}")
-        # Retorna o erro detalhado para o front entender o que houve no banco
-        raise HTTPException(
-            status_code=500, detail=f"Erro ao buscar dados do SQL: {str(e)}"
+        print(f"Erro SQL: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro no Banco de Dados: {str(e)}")
+
+    if not dados_folha:
+        return {"metadata": {"total_funcionarios": 0}, "divergencias": []}
+
+    # 4. Roda a Auditoria
+    try:
+        caso_pensao_int = int(request.pension_rule) if request.pension_rule else 2
+
+        resultados = fopag_auditor.run_fopag_audit(
+            company_code=company_code,
+            employee_payroll_data=dados_folha,
+            ano=request.year,
+            mes=request.month,
+            caso_pensao=caso_pensao_int,
         )
 
-    if not dados_reais:
         return {
-            "message": "Folha encontrada, mas nenhum funcionário com eventos calculados.",
-            "divergencias": [],
+            "metadata": {
+                "empresa": company_code,
+                "total_funcionarios": len(dados_folha),
+                "total_divergencias": len(
+                    [r for r in resultados if r["tem_divergencia"]]
+                ),
+            },
+            "divergencias": resultados,
         }
 
-    print(f"[Router] Dados recuperados. Auditando {len(dados_reais)} funcionários...")
+    except Exception as e:
+        import traceback
 
-    # Passo D: Rodar o Auditor
-    divergencias = fopag_auditor.run_fopag_audit(
-        company_code=request.company_code,
-        employee_payroll_data=dados_reais,
-        ano=request.year,
-        mes=request.month,
-        caso_pensao=request.caso_pensao,  # <--- Passando o parâmetro da tela
-    )
-
-    return {
-        "metadata": {
-            "empresa": request.company_code,
-            "fortes_id": fortes_empresa_id,
-            "folha_seq": folha_seq,
-            "total_funcionarios": len(dados_reais),
-            "total_divergencias": len(divergencias),
-        },
-        "divergencias": divergencias,
-    }
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro na Auditoria: {str(e)}")

@@ -115,7 +115,7 @@ CATALOG: Dict[str, CompanyRule] = {
     "SUP": CompanyRule(
         "SUP",
         "SUPPORT NORT COMERCIO DE EQUIPAMENTOS E COMPONENTES INDUSTRIAIS LTDA",
-        _DAY_15_PADRAO, 
+        _DAY_15_PADRAO,
     ),
     "CSR": CompanyRule(
         "CSR",
@@ -253,13 +253,47 @@ def _apply_emp_ids() -> None:
 _apply_emp_ids()
 
 
-def get_company_rule(code: str) -> CompanyRule:
-    if code not in CATALOG:
-        raise ValueError(f"Empresa não mapeada no catálogo: {code}")
-    rule = CATALOG[code]
-    if not rule.emp_id:
-        raise ValueError(f"ID da empresa (emp_id) não encontrado para o código: {code}")
-    return rule
+def get_company_rule(empresa_id: str):
+    """
+    Retorna as regras de auditoria para uma empresa específica.
+    Se a empresa não tiver regra específica, retorna a REGRA PADRÃO (Universal).
+    """
+
+    # 1. Definição da Regra Padrão (Serve para qualquer empresa nova)
+    regra_padrao = {
+        "id": "PADRAO",
+        "nome": "Regra Padrão de Auditoria",
+        "tolerancia_centavos": 0.01,
+        # Eventos que somam (Proventos comuns)
+        "proventos_padrao": ["1", "2", "100", "101", "200", "Salario", "Horas Extras"],
+        # Eventos que descontam (Descontos comuns)
+        "descontos_padrao": ["900", "901", "INSS", "IRRF", "Vale Transporte"],
+        # Configuração para ignorar eventos específicos na análise se necessário
+        "ignorar_eventos": [],
+    }
+
+    # 2. Catálogo de Regras Específicas (Exemplo da JR)
+    catalogo = {
+        "JR": {
+            **regra_padrao,  # Herda tudo da padrão
+            "nome": "Regras Específicas JR",
+            "tolerancia_centavos": 0.05,
+        },
+        # Você pode adicionar outras específicas aqui se precisar no futuro
+    }
+
+    # 3. Lógica de Busca (O PULO DO GATO 🐱)
+    # Se a empresa estiver no catálogo, usa a dela.
+    # Se NÃO estiver (caso da 2056), usa a regra_padrao e avisa no terminal.
+
+    if empresa_id in catalogo:
+        print(f">>> Usando regra específica para: {empresa_id}")
+        return catalogo[empresa_id]
+    else:
+        print(
+            f">>> AVISO: Empresa {empresa_id} sem regra específica. Usando REGRA PADRÃO."
+        )
+        return regra_padrao
 
 
 def get_all_company_names() -> List[str]:

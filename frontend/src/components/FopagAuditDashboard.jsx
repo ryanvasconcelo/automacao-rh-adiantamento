@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Search, AlertTriangle, Users, FileWarning, CheckCircle, XCircle, ChevronDown, ChevronUp, Info, Calculator, Hash, HelpCircle, Filter } from 'lucide-react';
 
-const API_URL = 'http://127.0.0.1:8000';
+// --- CONFIGURAÇÃO PARA ACESSO VIA REDE (PORTA 8001) ---
+const API_URL = 'http://192.168.0.166:8001';
 
 export default function FopagAuditDashboard() {
     const [loading, setLoading] = useState(false);
@@ -10,37 +11,76 @@ export default function FopagAuditDashboard() {
     const [error, setError] = useState(null);
 
     // Filtros de Execução
-    const [company, setCompany] = useState('JR');
+    const [company, setCompany] = useState('');
     const [month, setMonth] = useState(11);
     const [year, setYear] = useState(2025);
     const [casoPensao, setCasoPensao] = useState(2);
 
+    // Lista de Empresas (Vem do Banco)
+    const [companiesList, setCompaniesList] = useState([]);
+
     // Filtros de Visualização
-    const [showOnlyErrors, setShowOnlyErrors] = useState(false); // NOVO FILTRO
+    const [showOnlyErrors, setShowOnlyErrors] = useState(false);
 
     const [expandedRows, setExpandedRows] = useState({});
     const [showPensaoInfo, setShowPensaoInfo] = useState(false);
 
+    // --- EFEITO: CARREGAR EMPRESAS AO ABRIR ---
+    useEffect(() => {
+        const fetchCompanies = async () => {
+            try {
+                const response = await axios.get(`${API_URL}/api/v1/fopag/companies`);
+                setCompaniesList(response.data);
+            } catch (error) {
+                console.error("Erro ao carregar empresas", error);
+                // CORREÇÃO AQUI: Mudamos de 'codigo/nome' para 'id/name'
+                setCompaniesList([{ id: 'JR', name: 'JR (Modo Fallback)' }]);
+            }
+        };
+        fetchCompanies();
+    }, []);
+
     const handleAudit = async () => {
+        if (!company) {
+            alert("Por favor, selecione uma empresa.");
+            return;
+        }
+
         setLoading(true);
         setError(null);
         setData(null);
+
         try {
+            // CORREÇÃO 1: Os nomes aqui devem ser IGUAIS aos do Python (router.py)
             const response = await axios.post(`${API_URL}/api/v1/fopag/audit/database`, {
-                company_code: company,
+                empresa_id: company,       // Antes estava 'company_code' -> ISSO DAVA ERRO 422
                 month: parseInt(month),
                 year: parseInt(year),
-                caso_pensao: parseInt(casoPensao)
+                pension_rule: String(casoPensao) // Antes estava 'caso_pensao'
             });
+
             setData(response.data);
 
-            // Se tiver erro, já ativa o filtro automaticamente para facilitar
-            const temErro = response.data.divergencias.some(d => d.tem_divergencia);
+            const temErro = response.data.divergencias?.some(d => d.tem_divergencia);
             if (temErro) setShowOnlyErrors(true);
 
         } catch (err) {
-            console.error(err);
-            setError(err.response?.data?.detail || "Erro ao conectar com o servidor.");
+            console.error("Erro na auditoria:", err);
+
+            // CORREÇÃO 2: Blindagem para não dar Tela Branca (React Child Error)
+            let msg = "Erro ao conectar com o servidor.";
+
+            if (err.response?.data?.detail) {
+                const detail = err.response.data.detail;
+                // Se o erro for um objeto/array (comum no erro 422), transforma em texto
+                if (typeof detail === 'object') {
+                    msg = "Erro de Validação: " + JSON.stringify(detail);
+                } else {
+                    msg = detail;
+                }
+            }
+
+            setError(msg);
         } finally {
             setLoading(false);
         }
@@ -58,7 +98,6 @@ export default function FopagAuditDashboard() {
     const funcionariosComErro = data?.divergencias.filter(f => f.tem_divergencia).length || 0;
     const funcionariosOK = data?.divergencias.filter(f => !f.tem_divergencia).length || 0;
     const totalEventosAuditados = data?.divergencias.reduce((acc, f) => acc + f.itens.length, 0) || 0;
-    const totalErros = data?.divergencias.reduce((acc, f) => acc + f.itens.filter(i => i.status === "ERRO").length, 0) || 0;
 
     // Lista Filtrada para Exibição
     const listaExibicao = data?.divergencias.filter(func => {
@@ -75,16 +114,23 @@ export default function FopagAuditDashboard() {
                 </h1>
 
                 <div className="flex flex-wrap gap-4 items-end">
+
+                    {/* SELETOR DE EMPRESAS DINÂMICO */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
                         <select
                             value={company}
                             onChange={e => setCompany(e.target.value)}
-                            className="p-2.5 border border-gray-300 rounded-lg w-56 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                            className="p-2.5 border border-gray-300 rounded-lg w-64 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                         >
-                            <option value="JR">JR RODRIGUES</option>
-                            <option value="2056">A CICLISTA (2056)</option>
-                            <option value="CMD">CMD (Exemplo)</option>
+                            <option value="">Selecione a empresa...</option>
+                            {companiesList.map((emp) => (
+                                /* --- CORREÇÃO AQUI --- */
+                                /* Usamos emp.id e emp.name vindos do Python */
+                                <option key={emp.id} value={emp.id}>
+                                    {emp.name}
+                                </option>
+                            ))}
                         </select>
                     </div>
 
@@ -190,8 +236,8 @@ export default function FopagAuditDashboard() {
                         <button
                             onClick={() => setShowOnlyErrors(!showOnlyErrors)}
                             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${showOnlyErrors
-                                    ? 'bg-red-50 border-red-200 text-red-700 shadow-inner'
-                                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                                ? 'bg-red-50 border-red-200 text-red-700 shadow-inner'
+                                : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
                                 }`}
                         >
                             <Filter size={16} />
@@ -223,8 +269,8 @@ export default function FopagAuditDashboard() {
                                             <div
                                                 onClick={() => toggleRow(func.matricula)}
                                                 className={`p-4 flex items-center justify-between cursor-pointer transition-all border-l-4 ${func.tem_divergencia
-                                                        ? 'border-l-red-500 bg-red-50/20'
-                                                        : 'border-l-green-500 hover:bg-gray-50'
+                                                    ? 'border-l-red-500 bg-red-50/20'
+                                                    : 'border-l-green-500 hover:bg-gray-50'
                                                     }`}
                                             >
                                                 <div className="flex items-center gap-4">

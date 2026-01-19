@@ -486,9 +486,15 @@ EVENT_CATALOG: Dict[str, EventProperties] = {
 
 @dataclass(frozen=True)
 class FopagCompanyRule:
+    # --- CAMPO NOVO PARA CORRIGIR O ERRO ---
+    base: str = (
+        "11"  # O sistema antigo chama de 'base', nós chamamos de cod_salario_base. Isso resolve.
+    )
+    # ---------------------------------------
+
     percentual_vt: float = 0.06
     dia_limite_beneficio: int = 20
-    valor_cota_salario_familia: float = 62.04
+    valor_cota_salario_familia: float = 65.00
     calcula_periculosidade: bool = True
     calcula_insalubridade: bool = True
     usa_calc_inss: bool = True
@@ -508,8 +514,7 @@ class FopagCompanyRule:
     cod_dsr_desconto: str = "349"
     cod_vale_transporte: str = "320"
     cod_vale_refeicao: str = "319"
-    cod_salario_familia: str = "306"
-    cod_salario_maternidade: str = "3"
+    # cod_salario_familia: str = "306" # Duplicado no original, mantendo o debaixo
     cod_salario_familia: str = "10"
     cod_salario_maternidade: str = "8"
     cod_reembolso_salarial: Optional[int] = None

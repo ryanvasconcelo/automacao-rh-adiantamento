@@ -3,14 +3,14 @@ import calendar
 from datetime import date, timedelta
 import holidays
 
-# --- CONSTANTES DE INSS (Vigência 2025 - Base SM R$ 1.518,00) ---
+# --- CONSTANTES DE INSS (Vigência 2025 - Base SM R$ 1.621,00) ---
 INSS_TABLE_2025 = [
-    (1518.00, 0.075, 0.00),
-    (2793.88, 0.09, 22.77),
-    (4190.83, 0.12, 106.59),
-    (8157.41, 0.14, 190.40),
+    (1621.00, 0.075, 0.00),
+    (2902.84, 0.09, 22.77),
+    (4354.27, 0.12, 106.59),
+    (8475.55, 0.14, 190.40),
 ]
-INSS_TETO_2025 = 951.63
+INSS_TETO_2025 = 988.07
 
 # --- CONSTANTES DE IRRF (Vigência 2025) ---
 IRRF_DEDUCAO_DEPENDENTE_2025 = 189.59
@@ -26,8 +26,8 @@ DIVISOR_HORA_PADRAO = 220.0
 PERCENTUAL_DSR_PLACEHOLDER = 0.20
 
 # --- CONSTANTES PARA SALÁRIO FAMÍLIA ---
-TETO_SALARIO_FAMILIA = 1906.04
-VALOR_COTA_SALARIO_FAMILIA = 65.00
+TETO_SALARIO_FAMILIA = 1980.38
+VALOR_COTA_SALARIO_FAMILIA = 67.54
 
 
 # ==============================================================================
