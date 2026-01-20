@@ -68,11 +68,6 @@ const SummaryView = ({ summaryData, onSelectCompany, onGenerateReports }) => (
     <div>
         <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
             <h2 className="text-3xl font-bold text-gray-900">Resumo da Auditoria</h2>
-            <div className="flex items-center gap-4">
-                <button onClick={onGenerateReports} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 px-6 rounded-lg shadow-sm">
-                    Gerar Relatórios <ChevronsRight className="w-5 h-5" />
-                </button>
-            </div>
         </div>
         <div className="grid grid-cols-1 md:col-cols-2 lg:grid-cols-3 gap-6">
             {Object.values(summaryData).map(company => (
@@ -354,9 +349,6 @@ const AdiantamentoDashboard = ({ onBackToMenu }) => {
                     <img src={logoProjecont} alt="Logo" className='w-8 h-8 rounded-md' />
                     <h1 className="text-xl font-semibold text-gray-900">Módulo Adiantamento</h1>
                 </div>
-                <button onClick={onBackToMenu} className="text-sm text-gray-500 hover:text-blue-600 font-medium">
-                    Voltar ao Menu Principal
-                </button>
             </div>
 
             <main className="max-w-7xl mx-auto px-6 py-2">
