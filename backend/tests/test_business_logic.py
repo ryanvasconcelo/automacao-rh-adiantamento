@@ -2,7 +2,7 @@
 
 import pandas as pd
 import pytest
-from src.business_logic import processar_regras_e_calculos_jr
+from backend.src.adiantamento.business_logic import processar_regras_e_calculos_jr
 from datetime import date, timedelta
 
 # Helper para criar DataFrames de teste mais completos

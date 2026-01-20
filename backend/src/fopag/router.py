@@ -1,31 +1,24 @@
 # backend/src/fopag/router.py
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 
-# --- IMPORTAÇÕES CERTAS ---
-# O ponto (.) significa "desta mesma pasta"
+# Imports locais
 from . import fopag_auditor
 from . import data_fetcher
-from . import fopag_rules_catalog
+from src.database import get_connection  # Importa a conexão segura
 
-# Importa o mapa de IDs da pasta src (nível acima)
+# Importa mapa de IDs se existir
 try:
     from src.emp_ids import CODE_TO_EMP_ID
 except ImportError:
     CODE_TO_EMP_ID = {}
 
-# CORREÇÃO AQUI: Removemos o prefixo porque o server.py já coloca ele
-router = APIRouter(tags=["FOPAG - Auditoria"])
+# --- DEFINIÇÃO DA ROTA (PREFIXO NOVO) ---
+router = APIRouter(prefix="/audit/fopag", tags=["FOPAG - Auditoria"])
 
 
-# --- MODELOS DE DADOS ---
-class CompanySchema(BaseModel):
-    codigo: str
-    nome: str
-
-
+# --- MODELOS ---
 class FopagRealAuditRequest(BaseModel):
     empresa_id: str
     month: int
@@ -38,74 +31,77 @@ class FopagRealAuditRequest(BaseModel):
 
 @router.get("/companies")
 def get_active_companies():
-    """Busca lista de empresas direto do SQL para o Dropdown"""
-    print(">>> Buscando empresas no banco...")
-    conn = data_fetcher.get_connection()
-    if not conn:
-        return []
-
+    """Busca lista de empresas (Compatível com Pyodbc e Pymssql)"""
     try:
-        cursor = conn.cursor(as_dict=True)
-        cursor.execute("SELECT Codigo, Nome FROM EMP (NOLOCK) ORDER BY Nome")
-        rows = cursor.fetchall()
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT Codigo, Nome FROM EMP (NOLOCK) WHERE DESATIVADA = 0 ORDER BY Nome"
+            )
 
-        lista = []
-        for row in rows:
-            try:
-                c_id = str(row["Codigo"]).strip()
-                if "." in c_id:
-                    c_id = str(int(float(c_id)))
+            # Recupera nomes das colunas para montar o dicionário manualmente
+            # Isso resolve o problema do 'as_dict=True' não existir no Windows
+            columns = [column[0] for column in cursor.description]
 
-                lista.append({"id": c_id, "name": str(row["Nome"]).strip()})
-            except:
-                continue
+            lista = []
+            for row in cursor.fetchall():
+                # Converte a tupla em dicionário
+                data = dict(zip(columns, row))
 
-        print(f">>> {len(lista)} empresas carregadas.")
-        return lista
+                try:
+                    c_id = str(data["Codigo"]).strip()
+                    # Remove decimais de código se existirem (ex: 10.0 -> 10)
+                    if "." in c_id:
+                        c_id = str(int(float(c_id)))
+
+                    lista.append({"id": c_id, "name": str(data["Nome"]).strip()})
+                except Exception:
+                    continue
+
+            return lista
+
     except Exception as e:
         print(f"Erro ao listar empresas: {e}")
+        # Retorna lista vazia para não quebrar o front com erro 500
         return []
-    finally:
-        conn.close()
 
 
 @router.post("/audit/database")
 def run_database_audit(request: FopagRealAuditRequest):
-    """
-    Executa a auditoria usando o FOPAG_AUDITOR (O arquivo correto)
-    """
+    """Executa a auditoria"""
     company_code = request.empresa_id
-    print(
-        f"\n>>> INICIANDO AUDITORIA PARA: {company_code} - {request.month}/{request.year}"
-    )
 
-    # 1. Tenta achar ID mapeado ou usa o próprio
+    # 1. Mapeamento de ID
     fortes_id = CODE_TO_EMP_ID.get(company_code.upper(), company_code)
 
-    # 2. Busca o ID Sequencial da Folha (SQL)
-    folha_seq = data_fetcher.get_folha_id(
-        empresa_codigo=str(fortes_id), mes=request.month, ano=request.year
-    )
+    # 2. Busca ID da Folha
+    try:
+        folha_seq = data_fetcher.get_folha_id(
+            empresa_codigo=str(fortes_id), mes=request.month, ano=request.year
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro de conexão SQL: {str(e)}")
 
     if not folha_seq:
         raise HTTPException(
             status_code=404,
-            detail=f"Folha Mensal não encontrada no Fortes para {request.month}/{request.year}.",
+            detail=f"Folha Mensal não encontrada para {request.month}/{request.year} (Empresa {fortes_id}).",
         )
 
-    # 3. Busca os dados dos funcionários (SQL)
+    # 3. Busca Dados
     try:
         dados_folha = data_fetcher.fetch_payroll_data(
             empresa_codigo=str(fortes_id), folha_seq=folha_seq
         )
     except Exception as e:
-        print(f"Erro SQL: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro no Banco de Dados: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Erro ao buscar dados da folha: {str(e)}"
+        )
 
     if not dados_folha:
         return {"metadata": {"total_funcionarios": 0}, "divergencias": []}
 
-    # 4. Roda a Auditoria
+    # 4. Auditoria
     try:
         caso_pensao_int = int(request.pension_rule) if request.pension_rule else 2
 
@@ -132,4 +128,6 @@ def run_database_audit(request: FopagRealAuditRequest):
         import traceback
 
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Erro na Auditoria: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Erro interno na auditoria: {str(e)}"
+        )

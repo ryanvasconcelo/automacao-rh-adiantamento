@@ -6,7 +6,7 @@ Usa credenciais de usuário do Fortes para autenticar e recalcular.
 
 import pyodbc
 from typing import Optional, Dict
-from .database import get_connection
+from ...database import get_connection
 from config.logging_config import log
 
 

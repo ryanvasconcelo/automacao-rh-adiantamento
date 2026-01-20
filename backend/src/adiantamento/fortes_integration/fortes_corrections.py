@@ -6,7 +6,7 @@ Permite ajustar valores de adiantamento já calculados na folha.
 
 import pandas as pd
 from typing import Dict, List, Optional, Tuple
-from .database import get_connection
+from ...database import get_connection
 from config.logging_config import log
 
 

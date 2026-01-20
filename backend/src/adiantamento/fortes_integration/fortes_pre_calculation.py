@@ -6,7 +6,7 @@ Modifica a tabela SEP (cadastro do funcionário) para que o Fortes calcule corre
 import pandas as pd
 import pymssql
 from typing import Dict, List, Tuple, Optional
-from .database import get_connection
+from ...database import get_connection
 from config.logging_config import log
 
 

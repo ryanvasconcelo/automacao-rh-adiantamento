@@ -1,17 +1,17 @@
-# src/rules_catalog.py (Versão Definitiva com Todas as Empresas Mapeadas)
+# src/rules_catalog.py
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
-
+from typing import Dict, Optional, Any
 from .emp_ids import CODE_TO_EMP_ID
+
+# --- DEFINIÇÃO DAS ESTRUTURAS (DATACLASSES) ---
 
 
 @dataclass(frozen=True)
 class PayWindow:
-    analysis_days: int = 30  # Obsoleto - será calculado dinamicamente
     pay_day: int = 20
     process_from_day: int = 15
-    use_real_month_days: bool = True  # Usar dias reais do mês
+    use_real_month_days: bool = True
 
 
 @dataclass(frozen=True)
@@ -26,20 +26,9 @@ class GeneralPolicy:
 
 
 @dataclass(frozen=True)
-class Day20RuleSet:
-    window: PayWindow = PayWindow(pay_day=20)
-    policy: GeneralPolicy = GeneralPolicy()
-    admission_receive_until_day: int = 10
-    vacation_start_block_until_day: int = 15
-    resignation_block_until_day: int = 15
-
-
-# NOVO: Conjunto de regras para empresas do dia 15
-@dataclass(frozen=True)
-class Day15RuleSet:
-    window: PayWindow = PayWindow(pay_day=15)
-    policy: GeneralPolicy = GeneralPolicy()
-    # TODO: Validar se as regras de admissão, férias, etc. são as mesmas do dia 20
+class DayRuleSet:
+    window: PayWindow
+    policy: GeneralPolicy = field(default_factory=GeneralPolicy)
     admission_receive_until_day: int = 10
     vacation_start_block_until_day: int = 15
     resignation_block_until_day: int = 15
@@ -49,205 +38,141 @@ class Day15RuleSet:
 class SpecialRoles:
     gerente_loja_value: float = 1500.0
     subgerente_loja_value: float = 900.0
-    name_overrides: Dict[str, float] = field(
-        default_factory=lambda: {"ANA VALESCA LOPES TURIBIO": 1500.0}
-    )
+    name_overrides: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class CompanyRule:
     code: str
     name: str
-    base: Day20RuleSet | Day15RuleSet  # Tipo atualizado
+    base: DayRuleSet
     special: Optional[SpecialRoles] = None
-    overrides: Dict[str, object] = field(default_factory=dict)
+    overrides: Dict[str, Any] = field(default_factory=dict)
     emp_id: Optional[int] = None
 
 
-_DAY_20_PADRAO = Day20RuleSet()
-_DAY_15_PADRAO = Day15RuleSet()  # Instância da nova regra
+# --- INSTÂNCIAS PADRÃO ---
+
+_WINDOW_20 = PayWindow(pay_day=20)
+_WINDOW_15 = PayWindow(pay_day=15)
+
+_RULE_20 = DayRuleSet(window=_WINDOW_20)
+_RULE_15 = DayRuleSet(window=_WINDOW_15)
+
 _JR_SPECIALS = SpecialRoles()
 
+# --- CATÁLOGO DE EMPRESAS ---
+
 CATALOG: Dict[str, CompanyRule] = {
-    # --- EMPRESAS DIA 15 ---
+    # EMPRESAS DIA 15
     "TACACA": CompanyRule(
-        "TACACA",
-        "TACACÁ DA TIA SOCORRO",
-        _DAY_15_PADRAO,
-        overrides={"no_rounding": True},
+        "TACACA", "TACACÁ DA TIA SOCORRO", _RULE_15, overrides={"no_rounding": True}
     ),
-    "AMM": CompanyRule(
-        "AMM", "AMM SERVICOS DE APOIO ADMINISTRATIVO LTDA", _DAY_15_PADRAO
-    ),
+    "AMM": CompanyRule("AMM", "AMM SERVICOS DE APOIO ADMINISTRATIVO LTDA", _RULE_15),
     "RIO": CompanyRule(
-        "RIO", "FABRICACAO DE CERVEJAS E CHOPES RIO NEGRO LTDA", _DAY_15_PADRAO
+        "RIO", "FABRICACAO DE CERVEJAS E CHOPES RIO NEGRO LTDA", _RULE_15
     ),
     "CMD": CompanyRule(
         "CMD",
         "C.M. DISTRIBUIDORA DE ALIMENTOS LTDA - MATRIZ",
-        _DAY_15_PADRAO,
+        _RULE_15,
         overrides={"no_rounding": True},
     ),
-    "MAP": CompanyRule("MAP", "M.A. DE O. PINHEIRO LTDA", _DAY_15_PADRAO),
+    "MAP": CompanyRule("MAP", "M.A. DE O. PINHEIRO LTDA", _RULE_15),
     "RPC": CompanyRule(
         "RPC",
         "REAL PROTEINA COMERCIO DE CARNES LTDA",
-        _DAY_15_PADRAO,
+        _RULE_15,
         overrides={"no_rounding": True},
     ),
     "REMBRAZ": CompanyRule(
-        "REMBRAZ", "DISTRIBUIDORA COMERCIAL REMBRAZ EIRELI", _DAY_15_PADRAO
+        "REMBRAZ", "DISTRIBUIDORA COMERCIAL REMBRAZ EIRELI", _RULE_15
     ),
     "ROLL": CompanyRule(
-        "ROLL", "ROLL PET INDUSTRIA E COMERCIO DE PLASTICOS LTDA", _DAY_15_PADRAO
+        "ROLL", "ROLL PET INDUSTRIA E COMERCIO DE PLASTICOS LTDA", _RULE_15
     ),
     "GON": CompanyRule(
-        "GON",
-        "GONCALES INDUSTRIA E COMERCIO DE PRODUTOS ALIMENTICIOS LTDA",
-        _DAY_15_PADRAO,
+        "GON", "GONCALES INDUSTRIA E COMERCIO DE PRODUTOS ALIMENTICIOS LTDA", _RULE_15
     ),
-    "IMI": CompanyRule("IMI", "INGRID MAIA EIRELI", _DAY_15_PADRAO),
-    "PHY": CompanyRule(
-        "PHY",
-        "PHYSIO VIDA - HYK SERVICOS DE FISIOTERAPIA E COMERCIO DE ARTIGOS ESPORTIVOS LTDA",
-        _DAY_15_PADRAO,
-    ),
-    "SUP": CompanyRule(
-        "SUP",
-        "SUPPORT NORT COMERCIO DE EQUIPAMENTOS E COMPONENTES INDUSTRIAIS LTDA",
-        _DAY_15_PADRAO,
-    ),
-    "CSR": CompanyRule(
-        "CSR",
-        "CSR FORNECIMENTO DE REFEICOES E SERVICOS EMPRESARIAIS LTDA",
-        _DAY_15_PADRAO,
-    ),
-    "LUBRINORTE": CompanyRule(
-        "LUBRINORTE", "IMPORTADORA LUBRINORTE LTDA", _DAY_15_PADRAO
-    ),
+    "IMI": CompanyRule("IMI", "INGRID MAIA EIRELI", _RULE_15),
+    "PHY": CompanyRule("PHY", "PHYSIO VIDA", _RULE_15),
+    "SUP": CompanyRule("SUP", "SUPPORT NORT COMERCIO", _RULE_15),
+    "CSR": CompanyRule("CSR", "CSR FORNECIMENTO DE REFEICOES", _RULE_15),
+    "LUBRINORTE": CompanyRule("LUBRINORTE", "IMPORTADORA LUBRINORTE LTDA", _RULE_15),
     "UNI1": CompanyRule(
-        "UNI1", "UNIMAR - AMAZONAS DESPACHOS ADUANEIROS EIRELI", _DAY_15_PADRAO
+        "UNI1", "UNIMAR - AMAZONAS DESPACHOS ADUANEIROS EIRELI", _RULE_15
     ),
     "UNI2": CompanyRule(
-        "UNI2", "UNIMAR - AMAZONAS DESPACHOS ADUANEIROS LTDA", _DAY_15_PADRAO
+        "UNI2", "UNIMAR - AMAZONAS DESPACHOS ADUANEIROS LTDA", _RULE_15
     ),
-    "ABF": CompanyRule(
-        "ABF",
-        "ABF DISTRIBUIDORA DE PRODUTOS DE LIMPEZA E ESCRITORIO LTDA",
-        _DAY_15_PADRAO,
-    ),
-    # --- EMPRESAS DIA 20 ---
-    "JR": CompanyRule("JR", "JR RODRIGUES DP", _DAY_20_PADRAO, special=_JR_SPECIALS),
+    "ABF": CompanyRule("ABF", "ABF DISTRIBUIDORA", _RULE_15),
+    # EMPRESAS DIA 20
+    "JR": CompanyRule("JR", "JR RODRIGUES DP", _RULE_20, special=_JR_SPECIALS),
     "REAL": CompanyRule(
-        "REAL",
-        "REAL COMERCIO DE ARTIGOS DE ARMARINHO LTDA",
-        _DAY_20_PADRAO,
-        special=_JR_SPECIALS,
+        "REAL", "REAL COMERCIO DE ARTIGOS", _RULE_20, special=_JR_SPECIALS
     ),
-    "JCR": CompanyRule("JCR", "JONIVAL - SL91", _DAY_20_PADRAO, special=_JR_SPECIALS),
-    "RSR": CompanyRule(
-        "RSR",
-        "GP SALMO 91 - (MTZ) R DE S RODRIGUES VARIEDADES LTDA",
-        _DAY_20_PADRAO,
-        special=_JR_SPECIALS,
-    ),
-    "JRRV": CompanyRule(
-        "JRRV",
-        "GP SALMO 91 - (MTZ) J R RODRIGUES VARIEDADES LTDA",
-        _DAY_20_PADRAO,
-        special=_JR_SPECIALS,
-    ),
+    "JCR": CompanyRule("JCR", "JONIVAL - SL91", _RULE_20, special=_JR_SPECIALS),
+    "RSR": CompanyRule("RSR", "GP SALMO 91 - RSR", _RULE_20, special=_JR_SPECIALS),
+    "JRRV": CompanyRule("JRRV", "GP SALMO 91 - JRRV", _RULE_20, special=_JR_SPECIALS),
     "ACB": CompanyRule(
-        "ACB",
-        "A. C. B. LOCADORA DE VEICULOS LTDA",
-        _DAY_20_PADRAO,
-        overrides={"no_rounding": True},
+        "ACB", "A. C. B. LOCADORA", _RULE_20, overrides={"no_rounding": True}
     ),
     "BEL": CompanyRule(
         "BEL",
         "BEL MICRO INDUSTRIAL LTDA",
-        _DAY_20_PADRAO,
+        _RULE_20,
         overrides={"consignado_provision_pct": 0.0},
     ),
     "MASTER": CompanyRule(
         "MASTER",
-        "MASTERFOOD COMERCIO DE ALIMENTOS LTDA. (MATRIZ 0001-00)",
-        _DAY_20_PADRAO,
-        overrides={"calculates_quebra_caixa": True, "calculates_gratificacao": True},
+        "MASTERFOOD COMERCIO",
+        _RULE_20,
+        overrides={"calculates_quebra_caixa": True},
     ),
     "ASDAF": CompanyRule(
         "ASDAF",
         "A S DA FROTA E CIA LTDA",
-        _DAY_20_PADRAO,
+        _RULE_20,
         overrides={"calculates_vale_loan": True, "fixed_advance_value": True},
     ),
-    "BERGA1": CompanyRule(
-        "BERGA1",
-        "BERGA ONE COMERCIO DE PRODUTOS FARMACEUTICOS E HOSPITALARES LTDA",
-        _DAY_20_PADRAO,
-    ),
-    "MTZ-ICM": CompanyRule(
-        "MTZ-ICM", "MTZ - ICM INDUSTRIA E COMERCIO DE METAIS LTDA", _DAY_20_PADRAO
-    ),
-    "LMB": CompanyRule("LMB", "LMB RESTAURANTES LTDA (MATRIZ 0001-37)", _DAY_20_PADRAO),
-    "NEYMARX": CompanyRule(
-        "NEYMARX", "MATRIZ - NEYMARX COMERCIO DE MATERIAIS LTDA", _DAY_20_PADRAO
-    ),
+    "BERGA1": CompanyRule("BERGA1", "BERGA ONE COMERCIO", _RULE_20),
+    "MTZ-ICM": CompanyRule("MTZ-ICM", "MTZ - ICM INDUSTRIA", _RULE_20),
+    "LMB": CompanyRule("LMB", "LMB RESTAURANTES LTDA", _RULE_20),
+    "NEYMARX": CompanyRule("NEYMARX", "MATRIZ - NEYMARX", _RULE_20),
     "ANDREY": CompanyRule(
         "ANDREY",
-        "ANDREY E SOUZA SERVICOS DE CONSTRUCAO CIVIL LTDA",
-        _DAY_20_PADRAO,
+        "ANDREY E SOUZA SERVICOS",
+        _RULE_20,
         overrides={"output_split_by_lotacao": True},
     ),
     "NEWEN": CompanyRule(
         "NEWEN",
-        "NEWEN CONSTRUTORA E INCORPORADORA LTDA",
-        _DAY_20_PADRAO,
-        overrides={"output_split_by_lotacao": True, "generate_remessa": True},
+        "NEWEN CONSTRUTORA",
+        _RULE_20,
+        overrides={"output_split_by_lotacao": True},
     ),
-    "TET-GESTAO": CompanyRule(
-        "TET-GESTAO",
-        "T E T GESTAO EMPRESARIAL LTDA",
-        _DAY_20_PADRAO,
-        overrides={"generate_remessa": True},
-    ),
-    "PV": CompanyRule(
-        "PV", "PV COMERCIO ATACADISTA DE MAQUINAS E EQUIPAMENTOS LTDA", _DAY_20_PADRAO
-    ),
-    "BBPE": CompanyRule("BBPE", "BBPE SERVICOS DE CONSTRUCAO LTDA", _DAY_20_PADRAO),
-    "EBRE": CompanyRule("EBRE", "EMPRESA BRASILEIRA DE ENERGIA LTDA", _DAY_20_PADRAO),
-    "TRANSF": CompanyRule(
-        "TRANSF",
-        "TRANSFORMAR LOCACAO DE VEICULOS E SERVICOS AMBIENTAIS LTDA",
-        _DAY_20_PADRAO,
-    ),
-    "COPEF": CompanyRule("COPEF", "COPEF CONSTRUCAO LTDA", _DAY_20_PADRAO),
-    "TKA": CompanyRule("TKA", "T K A DE SOUZA", _DAY_20_PADRAO),
-    "TPA": CompanyRule("TPA", "T P A DE SOUZA", _DAY_20_PADRAO),
-    "TET-MTZ": CompanyRule(
-        "TET-MTZ",
-        "MTZ - T E T COMERCIO E INDUSTRIA DE HORTIFRUTIGRANJEIROS LTDA",
-        _DAY_20_PADRAO,
-    ),
-    "SOLAPOWER": CompanyRule(
-        "SOLAPOWER",
-        "SOLAPOWER SERVICOS DE ENGENHARIA E MANUTENCAO LTDA",
-        _DAY_20_PADRAO,
-    ),
-    "PROJECONT-TAX": CompanyRule(
-        "PROJECONT-TAX", "PROJECONT TAX SERVICOS DE RECUPERACAO", _DAY_20_PADRAO
-    ),
+    "TET-GESTAO": CompanyRule("TET-GESTAO", "T E T GESTAO EMPRESARIAL", _RULE_20),
+    "PV": CompanyRule("PV", "PV COMERCIO ATACADISTA", _RULE_20),
+    "BBPE": CompanyRule("BBPE", "BBPE SERVICOS DE CONSTRUCAO", _RULE_20),
+    "EBRE": CompanyRule("EBRE", "EMPRESA BRASILEIRA DE ENERGIA", _RULE_20),
+    "TRANSF": CompanyRule("TRANSF", "TRANSFORMAR LOCACAO", _RULE_20),
+    "COPEF": CompanyRule("COPEF", "COPEF CONSTRUCAO LTDA", _RULE_20),
+    "TKA": CompanyRule("TKA", "T K A DE SOUZA", _RULE_20),
+    "TPA": CompanyRule("TPA", "T P A DE SOUZA", _RULE_20),
+    "TET-MTZ": CompanyRule("TET-MTZ", "MTZ - T E T COMERCIO", _RULE_20),
+    "SOLAPOWER": CompanyRule("SOLAPOWER", "SOLAPOWER SERVICOS", _RULE_20),
+    "PROJECONT-TAX": CompanyRule("PROJECONT-TAX", "PROJECONT TAX SERVICOS", _RULE_20),
 }
 
 
+# --- INJEÇÃO DOS IDS DO SQL ---
 def _apply_emp_ids() -> None:
-    """Injects the Fortes `emp_id` into each rule in the catalog."""
     for code, empid in CODE_TO_EMP_ID.items():
         if code in CATALOG and empid:
-            # Creates a new CompanyRule instance with the emp_id filled in
-            CATALOG[code] = CompanyRule(
-                **{**CATALOG[code].__dict__, "emp_id": int(empid)}
-            )
+            # Clona e atualiza o emp_id
+            rule = CATALOG[code]
+            # Usando object.__setattr__ para contornar o frozen=True
+            object.__setattr__(rule, "emp_id", int(empid))
 
 
 _apply_emp_ids()
@@ -255,61 +180,25 @@ _apply_emp_ids()
 
 def get_company_rule(empresa_id: str):
     """
-    Retorna as regras de auditoria para uma empresa específica.
-    Se a empresa não tiver regra específica, retorna a REGRA PADRÃO (Universal).
+    Retorna a regra da empresa. Se não encontrar, retorna uma REGRA PADRÃO (DIA 20)
+    que possui a estrutura correta (.base.window.pay_day).
     """
-
-    # 1. Definição da Regra Padrão (Serve para qualquer empresa nova)
-    regra_padrao = {
-        "id": "PADRAO",
-        "nome": "Regra Padrão de Auditoria",
-        "tolerancia_centavos": 0.01,
-        # Eventos que somam (Proventos comuns)
-        "proventos_padrao": ["1", "2", "100", "101", "200", "Salario", "Horas Extras"],
-        # Eventos que descontam (Descontos comuns)
-        "descontos_padrao": ["900", "901", "INSS", "IRRF", "Vale Transporte"],
-        # Configuração para ignorar eventos específicos na análise se necessário
-        "ignorar_eventos": [],
-    }
-
-    # 2. Catálogo de Regras Específicas (Exemplo da JR)
-    catalogo = {
-        "JR": {
-            **regra_padrao,  # Herda tudo da padrão
-            "nome": "Regras Específicas JR",
-            "tolerancia_centavos": 0.05,
-        },
-        # Você pode adicionar outras específicas aqui se precisar no futuro
-    }
-
-    # 3. Lógica de Busca (O PULO DO GATO 🐱)
-    # Se a empresa estiver no catálogo, usa a dela.
-    # Se NÃO estiver (caso da 2056), usa a regra_padrao e avisa no terminal.
-
-    if empresa_id in catalogo:
-        print(f">>> Usando regra específica para: {empresa_id}")
-        return catalogo[empresa_id]
+    if empresa_id in CATALOG:
+        # print(f">>> Regra encontrada para: {empresa_id}")
+        return CATALOG[empresa_id]
     else:
-        print(
-            f">>> AVISO: Empresa {empresa_id} sem regra específica. Usando REGRA PADRÃO."
+        # print(f">>> AVISO: Empresa {empresa_id} sem regra. Usando Fallback (JR/Dia 20).")
+        # Retorna uma cópia da JR ou cria uma nova genérica
+        fallback = CompanyRule(
+            "FALLBACK", "Regra Padrão (Fallback)", _RULE_20, emp_id=None
         )
-        return regra_padrao
+        return fallback
 
 
-def get_all_company_names() -> List[str]:
-    return [rule.name for rule in CATALOG.values()]
-
-
+# Funções auxiliares mantidas para compatibilidade
 def get_code_by_name(name: str) -> str:
     search_name = name.upper().strip()
     for code, rule in CATALOG.items():
         if rule.name.upper().strip() == search_name:
             return code
-    for code, rule in CATALOG.items():
-        if search_name in rule.name.upper().strip():
-            return code
-    raise ValueError(f"Nome da empresa não encontrado no catálogo: {name}")
-
-
-def get_name_by_code(code: str) -> str:
-    return get_company_rule(code).name
+    return "JR"  # Fallback seguro

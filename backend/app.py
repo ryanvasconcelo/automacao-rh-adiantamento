@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 from src.database import ping
-from src.data_extraction import fetch_all_companies, audit_advance_flags
+from backend.src.adiantamento.data_extraction import fetch_all_companies, audit_advance_flags
 from src.rules_catalog import get_code_by_name
-from main import run, build_summary  # build_summary será usado novamente
+from backend.src.adiantamento.runner import run, build_summary  # build_summary será usado novamente
 
 st.set_page_config(page_title="Automação RH | Adiantamentos", layout="wide")
 
