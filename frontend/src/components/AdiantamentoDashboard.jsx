@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { ChevronLeft, ChevronsRight, FileDown, Loader, Search, CheckSquare, Square, XCircle, CheckCircle, AlertTriangle } from 'lucide-react';
 import logoProjecont from '../assets/logoProjecont.jpeg';
 
-// CONFIGURAÇÃO DA API (Porta 8001)
+// CONFIGURAÇÃO DA API
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
 // --- Subcomponentes de UI ---
@@ -64,36 +64,38 @@ const SelectionView = ({ selectedDay, setSelectedDay, selectedMonth, setSelected
     </div>
 );
 
-const SummaryView = ({ summaryData, onSelectCompany, onGenerateReports }) => {
-    return (
-        <div>
-            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                <h2 className="text-3xl font-bold text-gray-900">Resumo da Auditoria</h2>
-            </div>
-            <div className="grid grid-cols-1 md:col-cols-2 lg:grid-cols-3 gap-6">
-                {Object.values(summaryData).map(company => {
-                    return (
-                        <div key={company.code} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col">
-                            <h3 className="font-bold text-lg text-gray-900 mb-4 truncate">{company.nome}</h3>
-                            <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
-                                <p><strong>Total:</strong> {company.total}</p>
-                                <p className={company.grave > 0 ? 'text-red-600' : 'text-gray-600'}><strong>Graves:</strong> {company.grave}</p>
-                                <p className={company.divergencia > 0 ? 'text-amber-600' : 'text-gray-600'}><strong>Divergências:</strong> {company.divergencia}</p>
-                                <p><strong>Removidos:</strong> {company.removido}</p>
-                            </div>
-                            <div className="flex gap-2 mt-auto">
-                                <button onClick={() => onSelectCompany(company.code)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg text-xs">
-                                    Ver Detalhes
-                                </button>
-                            </div>
-                        </div>
-                    );
-                })}
+const SummaryView = ({ summaryData, onSelectCompany, onGenerateReports }) => (
+    <div>
+        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+            <h2 className="text-3xl font-bold text-gray-900">Resumo da Auditoria</h2>
+            <div className="flex items-center gap-4">
+                <button onClick={onGenerateReports} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 px-6 rounded-lg shadow-sm">
+                    Gerar Relatórios <ChevronsRight className="w-5 h-5" />
+                </button>
             </div>
         </div>
-    );
-};
+        <div className="grid grid-cols-1 md:col-cols-2 lg:grid-cols-3 gap-6">
+            {Object.values(summaryData).map(company => (
+                <div key={company.code} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col">
+                    <h3 className="font-bold text-lg text-gray-900 mb-4 truncate">{company.nome}</h3>
+                    <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+                        <p><strong>Total:</strong> {company.total}</p>
+                        <p className={company.grave > 0 ? 'text-red-600' : 'text-gray-600'}><strong>Graves:</strong> {company.grave}</p>
+                        <p className={company.divergencia > 0 ? 'text-amber-600' : 'text-gray-600'}><strong>Divergências:</strong> {company.divergencia}</p>
+                        <p><strong>Removidos:</strong> {company.removido}</p>
+                    </div>
+                    <div className="flex gap-2 mt-auto">
+                        <button onClick={() => onSelectCompany(company.code)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg text-xs">
+                            Ver Detalhes
+                        </button>
+                    </div>
+                </div>
+            ))}
+        </div>
+    </div>
+);
 
+// --- COMPONENTE DETALHES (TABELA) ---
 const DetailView = ({ companyData, companyName, empresaCodigo, onBack }) => {
     const [filterAnalise, setFilterAnalise] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
@@ -106,18 +108,25 @@ const DetailView = ({ companyData, companyName, empresaCodigo, onBack }) => {
         return rounded.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
 
+    // --- CÁLCULO DE TOTAIS COM A NOVA COLUNA ---
     const metrics = useMemo(() => {
-        if (!companyData) return { totalFunc: 0, totalBruto: 0, totalDescontos: 0, totalFinal: 0, funcionariosElegiveis: 0, ok: 0, divergencia: 0, removidos: 0, grave: 0 };
+        if (!companyData) return { totalFunc: 0, totalBruto: 0, totalReal: 0, totalFinal: 0, funcionariosElegiveis: 0, ok: 0, divergencia: 0, removidos: 0, grave: 0 };
+
+        // valorBruto = Cadastro (Teórico) | ValorRealFortes = Folha (Eventos) | valorFinal = Auditado (Nosso)
         const totalBruto = Math.round(companyData.reduce((sum, row) => sum + (row.valorBruto || 0), 0) * 100) / 100;
-        const totalDescontos = Math.round(companyData.reduce((sum, row) => sum + (row.desconto || 0), 0) * 100) / 100;
+        const totalReal = Math.round(companyData.reduce((sum, row) => sum + (row.ValorRealFortes || 0), 0) * 100) / 100;
         const totalFinal = Math.round(companyData.reduce((sum, row) => sum + (row.valorFinal || 0), 0) * 100) / 100;
+
         return {
-            totalFunc: companyData.length, totalBruto, totalDescontos, totalFinal,
-            funcionariosElegiveis: companyData.filter(row => row.status === 'Elegível' || row.analise.includes('OK') || row.analise.includes('Corrigido')).length,
-            ok: companyData.filter(row => row.analise.includes('OK') || row.analise.includes('Corrigido')).length,
+            totalFunc: companyData.length,
+            totalBruto,
+            totalReal,
+            totalFinal,
+            funcionariosElegiveis: companyData.filter(row => row.status === 'Elegível' || row.analise.includes('OK')).length,
+            ok: companyData.filter(row => row.analise.includes('OK')).length,
             divergencia: companyData.filter(row => row.analise.includes('Divergência')).length,
             removidos: companyData.filter(row => row.analise.includes('Removido')).length,
-            grave: companyData.filter(row => row.analise.includes('INCONSISTÊNCIA GRAVE') || row.analise.includes('Rescisão')).length,
+            grave: companyData.filter(row => row.analise.includes('INCONSISTÊNCIA') || row.analise.includes('Rescisão')).length,
         };
     }, [companyData]);
 
@@ -125,10 +134,10 @@ const DetailView = ({ companyData, companyName, empresaCodigo, onBack }) => {
         return (companyData || []).filter(row => {
             const analiseLower = row.analise.toLowerCase();
             const matchesFilter = filterAnalise === 'all' ||
-                (filterAnalise === 'ok' && (analiseLower.includes('ok') || analiseLower.includes('corrigido'))) ||
+                (filterAnalise === 'ok' && analiseLower.includes('ok')) ||
                 (filterAnalise === 'divergencia' && analiseLower.includes('divergência')) ||
                 (filterAnalise === 'removido' && analiseLower.includes('removido')) ||
-                (filterAnalise === 'grave' && (analiseLower.includes('inconsistência grave') || analiseLower.includes('rescisão')));
+                (filterAnalise === 'grave' && (analiseLower.includes('inconsistência') || analiseLower.includes('rescisão')));
             const matchesSearch = !searchTerm || (row.nome && row.nome.toLowerCase().includes(searchTerm.toLowerCase())) || (row.matricula && row.matricula.includes(searchTerm));
             return matchesFilter && matchesSearch;
         });
@@ -136,39 +145,107 @@ const DetailView = ({ companyData, companyName, empresaCodigo, onBack }) => {
 
     const toggleRow = (matricula) => { const newSelected = new Set(selectedRows); if (newSelected.has(matricula)) newSelected.delete(matricula); else newSelected.add(matricula); setSelectedRows(newSelected); };
     const handleSelectAll = () => { if (selectedRows.size === filteredData.length) setSelectedRows(new Set()); else setSelectedRows(new Set(filteredData.map(row => row.matricula))); };
-    const getRowColor = (analise) => { if (analise.includes('INCONSISTÊNCIA GRAVE') || analise.includes('Rescisão')) return 'bg-red-50 hover:bg-red-100'; if (analise.includes('Divergência')) return 'bg-amber-50 hover:bg-amber-100'; if (analise.includes('Removido')) return 'bg-slate-50 hover:bg-slate-100'; if (analise.includes('Corrigido')) return 'bg-green-50 hover:bg-green-100'; return 'bg-white hover:bg-gray-50'; };
+
+    const getRowColor = (analise) => {
+        if (analise.includes('INCONSISTÊNCIA') || analise.includes('Rescisão')) return 'bg-red-50 hover:bg-red-100';
+        if (analise.includes('Divergência')) return 'bg-amber-50 hover:bg-amber-100';
+        if (analise.includes('Removido')) return 'bg-slate-50 hover:bg-slate-100';
+        return 'bg-white hover:bg-gray-50';
+    };
+
+    const filterButtons = [
+        { key: 'all', label: 'Todos', count: metrics.totalFunc },
+        { key: 'ok', label: 'OK', count: metrics.ok },
+        { key: 'divergencia', label: 'Divergências', count: metrics.divergencia },
+        { key: 'removido', label: 'Removidos', count: metrics.removidos },
+        { key: 'grave', label: 'Graves', count: metrics.grave },
+    ];
 
     return (
         <div>
             <button onClick={onBack} className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-800 mb-6"><ChevronLeft className="w-4 h-4" />Voltar ao Resumo</button>
             <h2 className="text-3xl font-bold text-gray-900 mb-6">{companyName}</h2>
+
+            {/* CARDS DE TOTALIZADORES ATUALIZADOS */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"><p className="text-sm text-gray-600 font-medium mb-1">Valor Bruto (Fortes)</p><p className="text-3xl font-bold text-gray-900">{formatCurrency(metrics.totalBruto)}</p></div>
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"><p className="text-sm text-gray-600 font-medium mb-1">Descontos Consignado</p><p className="text-3xl font-bold text-orange-600">{formatCurrency(metrics.totalDescontos)}</p></div>
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"><p className="text-sm text-gray-600 font-medium mb-1">Valor Líquido (Auditado)</p><p className="text-3xl font-bold text-blue-600">{formatCurrency(metrics.totalFinal)}</p></div>
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"><p className="text-sm text-gray-600 font-medium mb-1">Funcionários Elegíveis</p><p className="text-3xl font-bold text-green-600">{metrics.funcionariosElegiveis}</p></div>
-            </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4">
-                    <div className="flex gap-2">
-                        <button onClick={() => setFilterAnalise('all')} className={`px-3 py-1 text-sm rounded ${filterAnalise === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>Todos</button>
-                        <button onClick={() => setFilterAnalise('divergencia')} className={`px-3 py-1 text-sm rounded ${filterAnalise === 'divergencia' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>Divergências</button>
-                    </div>
-                    <div className="relative"><Search className="absolute left-3 top-2 text-gray-400 w-4 h-4" /><input type="text" placeholder="Buscar..." className="pl-9 pr-4 py-1.5 border rounded-lg text-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                    <p className="text-xs text-gray-500 font-semibold uppercase mb-1">Total Cadastro (Teórico)</p>
+                    <p className="text-2xl font-bold text-gray-400">{formatCurrency(metrics.totalBruto)}</p>
                 </div>
+
+                {/* NOVO CARD: VALOR REAL FOLHA */}
+                <div className="bg-blue-50 rounded-xl shadow-sm border border-blue-200 p-5">
+                    <p className="text-xs text-blue-600 font-semibold uppercase mb-1">Total Folha (Eventos)</p>
+                    <p className="text-3xl font-bold text-blue-700">{formatCurrency(metrics.totalReal)}</p>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                    <p className="text-xs text-gray-500 font-semibold uppercase mb-1">Total Auditado (Regras)</p>
+                    <p className="text-2xl font-bold text-purple-600">{formatCurrency(metrics.totalFinal)}</p>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                    <p className="text-xs text-gray-500 font-semibold uppercase mb-1">Elegíveis</p>
+                    <p className="text-3xl font-bold text-green-600">{metrics.funcionariosElegiveis}</p>
+                </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                {/* BARRA DE FILTROS */}
+                <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div className="flex flex-wrap gap-2">
+                        {filterButtons.map(btn => (
+                            <button key={btn.key} onClick={() => setFilterAnalise(btn.key)} className={`px-3 py-1.5 text-sm font-semibold rounded-full transition-colors ${filterAnalise === btn.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                                {btn.label} <span className={`ml-1 px-2 py-0.5 rounded-full text-xs bg-white/20`}>{btn.count}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <div className="relative w-full md:w-auto"><Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" /><input type="text" placeholder="Buscar funcionário..." className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
+                </div>
+
+                {/* TABELA ATUALIZADA COM COLUNA EXTRA */}
                 <div className="max-h-[600px] overflow-y-auto">
                     <table className="w-full text-sm">
-                        <thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="px-6 py-3 w-12"><input type="checkbox" onChange={handleSelectAll} checked={filteredData.length > 0 && selectedRows.size === filteredData.length} /></th><th className="px-6 py-3 text-left">Matrícula</th><th className="px-6 py-3 text-left">Nome</th><th className="px-6 py-3">Análise</th><th className="px-6 py-3 text-right">Valor Fortes</th><th className="px-6 py-3 text-right">Valor Auditado</th><th className="px-6 py-3">Observações</th></tr></thead>
+                        <thead className="bg-gray-50 sticky top-0 z-10 text-xs text-gray-500 uppercase tracking-wider">
+                            <tr>
+                                <th className="px-6 py-3 w-12"><input type="checkbox" onChange={handleSelectAll} checked={filteredData.length > 0 && selectedRows.size === filteredData.length} /></th>
+                                <th className="px-6 py-3 text-left">Matrícula</th>
+                                <th className="px-6 py-3 text-left">Nome</th>
+                                <th className="px-6 py-3 text-center">Análise</th>
+
+                                {/* COLUNAS FINANCEIRAS */}
+                                <th className="px-6 py-3 text-right text-gray-400">V. Cadastro</th>
+                                <th className="px-6 py-3 text-right bg-blue-50 text-blue-700 font-bold border-l border-r border-blue-100">V. Folha (Real)</th>
+                                <th className="px-6 py-3 text-right text-purple-700 font-bold">V. Auditado</th>
+
+                                <th className="px-6 py-3 text-left">Observações</th>
+                            </tr>
+                        </thead>
                         <tbody className="divide-y divide-gray-200">
                             {filteredData.map((row) => (
-                                <tr key={row.matricula} className={`${getRowColor(row.analise)}`}>
+                                <tr key={row.matricula} className={`${getRowColor(row.analise)} transition-colors`}>
                                     <td className="px-6 py-4"><input type="checkbox" checked={selectedRows.has(row.matricula)} onChange={() => toggleRow(row.matricula)} /></td>
-                                    <td className="px-6 py-4 font-medium">{row.matricula}</td>
-                                    <td className="px-6 py-4">{row.nome}</td>
-                                    <td className="px-6 py-4"><span className="px-2 py-1 rounded-full text-xs font-medium bg-white/50 border">{row.analise}</span></td>
-                                    <td className="px-6 py-4 text-right font-mono">{formatCurrency(row.valorBruto)}</td>
-                                    <td className="px-6 py-4 text-right font-mono font-bold text-blue-600">{formatCurrency(row.valorFinal)}</td>
-                                    <td className="px-6 py-4 text-gray-500 truncate max-w-xs" title={row.observacoes}>{row.observacoes}</td>
+                                    <td className="px-6 py-4 font-mono text-xs text-gray-500">{row.matricula}</td>
+                                    <td className="px-6 py-4 font-medium text-gray-900">{row.nome}</td>
+                                    <td className="px-6 py-4 text-center">
+                                        <span className={`px-2 py-1 rounded-full text-xs font-bold border ${row.analise.includes('OK') ? 'bg-green-100 text-green-700 border-green-200' : row.analise.includes('Divergência') ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
+                                            {row.analise.includes('OK') ? 'OK' : 'ATENÇÃO'}
+                                        </span>
+                                    </td>
+
+                                    {/* VALORES */}
+                                    <td className="px-6 py-4 text-right font-mono text-gray-400">{formatCurrency(row.valorBruto)}</td>
+
+                                    {/* COLUNA NOVA DESTACADA */}
+                                    <td className="px-6 py-4 text-right font-mono font-bold text-blue-700 bg-blue-50/50 border-l border-r border-blue-100">
+                                        {formatCurrency(row.ValorRealFortes)}
+                                    </td>
+
+                                    <td className="px-6 py-4 text-right font-mono font-bold text-purple-700">{formatCurrency(row.valorFinal)}</td>
+
+                                    <td className="px-6 py-4 text-xs text-gray-500 max-w-xs truncate" title={row.observacoes || row.analise}>
+                                        {row.observacoes || row.analise}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -264,7 +341,7 @@ const AdiantamentoDashboard = ({ onBackToMenu }) => {
             acc[empresaCode].total++;
             if (row.analise.includes('Divergência')) acc[empresaCode].divergencia++;
             if (row.analise.includes('Removido')) acc[empresaCode].removido++;
-            if (row.analise.includes('INCONSISTÊNCIA GRAVE') || row.analise.includes('Rescisão')) acc[empresaCode].grave++;
+            if (row.analise.includes('INCONSISTÊNCIA') || row.analise.includes('Rescisão')) acc[empresaCode].grave++;
             if (row.analise.includes('Corrigido')) acc[empresaCode].corrigido++;
             return acc;
         }, {});

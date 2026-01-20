@@ -290,29 +290,56 @@ def processar_regras(
     return analise_df
 
 
+# ... (Mantenha os imports e a função processar_regras como estão) ...
+
+
 def aplicar_descontos_consignado(
     df_calculado: pd.DataFrame, rule: CompanyRule
 ) -> pd.DataFrame:
     df_final = df_calculado.copy()
 
-    # Sanitização extra por segurança
-    for col in ["ValorParcelaConsignado", "SalarioContratual", "ValorFixoAdiant"]:
+    # 1. Sanitização de Segurança
+    cols_check = [
+        "ValorParcelaConsignado",
+        "SalarioContratual",
+        "ValorFixoAdiant",
+        "PercentualAdiant",
+    ]
+    for col in cols_check:
         if col in df_final.columns:
             df_final[col] = pd.to_numeric(df_final[col], errors="coerce").fillna(0.0)
 
-    df_final["PercentualDescontoConsignado"] = rule.base.policy.consignado_provision_pct
+    # 2. Definição do Percentual de Desconto (Dinâmico)
+    # Lógica: O desconto do consignado deve ser proporcional ao quanto o funcionário recebe de adiantamento.
+    # Ex: Se recebe 40% do salário, desconta 40% da parcela.
+
+    # Inicializa com o padrão da regra (fallback)
+    percentual_padrao = rule.base.policy.consignado_provision_pct  # Geralmente 0.40
+    df_final["PercentualDescontoConsignado"] = percentual_padrao
+
+    # A) Para quem tem Percentual definido no cadastro (Maioria)
+    mask_percentual = df_final["PercentualAdiant"] > 0
+    # Divide por 100 pois vem 40.0 do banco
+    df_final.loc[mask_percentual, "PercentualDescontoConsignado"] = (
+        df_final.loc[mask_percentual, "PercentualAdiant"] / 100.0
+    )
+
+    # B) Para quem recebe Valor Fixo (SEP.ValorAdiant > 0)
+    # Calculamos o percentual efetivo: (Valor Fixo / Salário)
     mask_valor_fixo = df_final["ValorFixoAdiant"] > 0
-    salario_base = df_final.loc[mask_valor_fixo, "SalarioContratual"]
-    adiantamento_fixo = df_final.loc[mask_valor_fixo, "ValorFixoAdiant"]
 
-    percentual_bruto = adiantamento_fixo.divide(salario_base.replace(0, pd.NA)).fillna(
-        0
-    )
-    percentual_arredondado = (np.floor(percentual_bruto * 100)) / 100
-    df_final.loc[mask_valor_fixo, "PercentualDescontoConsignado"] = (
-        percentual_arredondado
+    # Evita divisão por zero
+    salario_safe = df_final["SalarioContratual"].replace(0, np.nan)
+    percentual_calculado = df_final["ValorFixoAdiant"] / salario_safe
+
+    # Aplica onde tem valor fixo, preenchendo com 0 se der erro, e arredonda 2 casas
+    pct_fixo = percentual_calculado.fillna(0).apply(
+        lambda x: math.floor(x * 100) / 100.0
     )
 
+    df_final.loc[mask_valor_fixo, "PercentualDescontoConsignado"] = pct_fixo
+
+    # 3. Cálculo do Valor
     df_final["PercentualObservacao"] = (
         df_final["PercentualDescontoConsignado"] * 100
     ).map("{:,.0f}%".format)
@@ -321,21 +348,27 @@ def aplicar_descontos_consignado(
         df_final["ValorParcelaConsignado"] * df_final["PercentualDescontoConsignado"]
     )
 
+    # Regra Específica: BEL MICRO não desconta consignado no adiantamento
     if rule.overrides.get("consignado_provision_pct") == 0.0:
         valor_desconto[:] = 0.0
 
+    # Arredondamento
     if not rule.overrides.get("no_rounding", False):
         df_final["ValorDesconto"] = valor_desconto.apply(arredondar_fortes)
     else:
         df_final["ValorDesconto"] = valor_desconto
 
+    # 4. Cálculo do Líquido Final
     df_final["ValorLiquidoAdiantamento"] = (
         df_final["ValorAdiantamentoBruto"] - df_final["ValorDesconto"]
     )
+
+    # Garante que não fique negativo
     df_final.loc[
         df_final["ValorLiquidoAdiantamento"] < 0, "ValorLiquidoAdiantamento"
     ] = 0
 
+    # 5. Formatação da Observação
     mask_consignado = df_final["ValorParcelaConsignado"] > 0
 
     def append_obs(row):
@@ -343,7 +376,10 @@ def aplicar_descontos_consignado(
         parcela = row["ValorParcelaConsignado"]
         percentual_str = row["PercentualObservacao"]
         desconto = row["ValorDesconto"]
-        new_obs = f"Consignado (Parcela: R${parcela:,.2f} | Desc: R${desconto:,.2f} de {percentual_str})"
+
+        # Texto explicativo para auditoria
+        new_obs = f"Consignado (Parcela: R${parcela:,.2f} | Desc: R${desconto:,.2f} aplicado {percentual_str})"
+
         if obs and obs != "N/A":
             return f"{obs}; {new_obs}"
         return new_obs
@@ -352,7 +388,9 @@ def aplicar_descontos_consignado(
         append_obs, axis=1
     )
 
+    # Limpeza
     df_final.drop(
         columns=["PercentualDescontoConsignado", "PercentualObservacao"], inplace=True
     )
+
     return df_final

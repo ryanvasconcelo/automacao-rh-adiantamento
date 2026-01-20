@@ -37,7 +37,7 @@ function App() {
       <div className="text-center mb-12 animate-fade-in-up">
         <img src={logoProjecont} alt="Projecont" className="w-24 h-24 rounded-xl mx-auto mb-6 shadow-lg" />
         <h1 className="text-4xl font-extrabold text-slate-900 mb-3">
-          Projecont Auditor <span className="text-blue-600">Unified</span>
+          GLF <span className="text-blue-600">Auditor Unificado</span>
         </h1>
         <p className="text-lg text-slate-600 max-w-md mx-auto">
           Plataforma centralizada de auditoria e automação de Departamento Pessoal.
