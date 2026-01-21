@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { Search, AlertTriangle, CheckCircle2, XCircle, FileText, Calculator, Hash, HelpCircle, ThumbsUp } from 'lucide-react';
-import { PageTransition, Card, SmartButton, CustomSelect, MonthYearPicker, Badge, Button, SmartLoading, Toggle, Input } from './ui/Shared';
+// IMPORTANTE: Adicionado CalculationModal aqui
+import { PageTransition, Card, SmartButton, CustomSelect, MonthYearPicker, Badge, Button, SmartLoading, Toggle, Input, CalculationModal } from './ui/Shared';
 import { StatCard } from './ui/StatCard';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -24,6 +25,9 @@ export default function FopagAuditDashboard() {
     const [expandedRows, setExpandedRows] = useState({});
     const [searchTerm, setSearchTerm] = useState('');
 
+    // Estado para o Modal de Memória de Cálculo
+    const [selectedMemory, setSelectedMemory] = useState(null);
+
     const [isApproved, setIsApproved] = useState(false);
 
     useEffect(() => {
@@ -36,10 +40,10 @@ export default function FopagAuditDashboard() {
         if (!company) return;
         setLoading(true); setError(null); setIsApproved(false);
         try {
-            // Regra de pensão fixada em '2'
             const res = await axios.post(`${API_URL}/audit/fopag/audit/database`, {
                 empresa_id: company, month: parseInt(month), year: parseInt(year), pension_rule: '2'
             });
+
             if (res.data.divergencias.length === 0 && res.data.metadata.total_funcionarios === 0) {
                 setError("Nenhum dado encontrado para o período.");
             } else {
@@ -99,7 +103,7 @@ export default function FopagAuditDashboard() {
                 <Card className="shadow-xl shadow-purple-900/5 border-purple-100 p-8">
                     <div className="space-y-6">
                         <CustomSelect label="Empresa" value={company} onChange={setCompany} options={companiesList.map(c => ({ value: c.id, label: c.name }))} placeholder="Selecione a empresa..." searchable={true} />
-                        <MonthYearPicker month={month} year={year} onMonthChange={setMonth} onYearChange={setYear} />
+                        <div className="grid grid-cols-1"><MonthYearPicker month={month} year={year} onMonthChange={setMonth} onYearChange={setYear} /></div>
                         <SmartButton onClick={handleAudit} isLoading={loading} icon={Calculator} variant="green">Iniciar Auditoria Completa</SmartButton>
                     </div>
                     {loading && <div className="mt-6"><SmartLoading /></div>}
@@ -160,6 +164,13 @@ export default function FopagAuditDashboard() {
                 </div>
             </div>
 
+            {/* MODAL DE CÁLCULO */}
+            <CalculationModal
+                isOpen={!!selectedMemory}
+                onClose={() => setSelectedMemory(null)}
+                data={selectedMemory}
+            />
+
             <Card noPadding>
                 <div className="max-h-[600px] overflow-auto">
                     {filteredList.map(func => (
@@ -182,8 +193,8 @@ export default function FopagAuditDashboard() {
                                             <tr>
                                                 <th className="px-4 py-3 text-left">Evento</th>
                                                 <th className="px-4 py-3 text-right">Base</th>
-                                                <th className="px-4 py-3 text-right text-blue-600">Esperado</th>
                                                 <th className="px-4 py-3 text-right text-slate-600">Real</th>
+                                                <th className="px-4 py-3 text-right text-blue-600">Esperado</th>
                                                 <th className="px-4 py-3 text-right">Diferença</th>
                                                 <th className="px-4 py-3 text-center">Memória</th>
                                             </tr>
@@ -192,12 +203,24 @@ export default function FopagAuditDashboard() {
                                             {func.itens.map((item, idx) => (
                                                 <tr key={idx} className={item.status === "ERRO" ? "bg-rose-50/50" : ""}>
                                                     <td className="px-4 py-3">
-                                                        <div className="font-medium text-slate-700">{item.evento}</div>
-                                                        <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5"><Hash size={10} /> {item.codigo}</div>
+                                                        <div className="flex flex-col">
+                                                            {/* TORNAR CLICÁVEL SE TIVER MEMÓRIA */}
+                                                            {item.memoria ? (
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); setSelectedMemory(item.memoria); }}
+                                                                    className="font-medium text-blue-600 hover:text-blue-800 hover:underline text-left transition-colors flex items-center gap-1"
+                                                                >
+                                                                    {item.evento} <HelpCircle size={12} className="opacity-50" />
+                                                                </button>
+                                                            ) : (
+                                                                <span className="font-medium text-slate-700">{item.evento}</span>
+                                                            )}
+                                                            <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5"><Hash size={10} /> {item.codigo}</div>
+                                                        </div>
                                                     </td>
                                                     <td className="px-4 py-3 text-right font-mono text-slate-400">{item.base > 0 ? formatMoney(item.base) : '-'}</td>
-                                                    <td className="px-4 py-3 text-right font-mono font-bold text-blue-600">{formatMoney(item.esperado)}</td>
                                                     <td className="px-4 py-3 text-right font-mono text-slate-700">{formatMoney(item.real)}</td>
+                                                    <td className="px-4 py-3 text-right font-mono font-bold text-blue-600">{formatMoney(item.esperado)}</td>
                                                     <td className={`px-4 py-3 text-right font-mono font-bold ${item.status === 'ERRO' ? 'text-rose-600' : 'text-slate-300'}`}>{item.diferenca !== 0 ? formatMoney(item.diferenca) : '-'}</td>
                                                     <td className="px-4 py-3 text-center"><span className="text-[10px] text-slate-400">{item.formula || '-'}</span></td>
                                                 </tr>
@@ -216,3 +239,4 @@ export default function FopagAuditDashboard() {
 
 // Icones locais para garantir renderização
 const UsersIcon = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+const CheckIcon = (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>

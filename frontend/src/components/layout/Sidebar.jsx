@@ -15,7 +15,7 @@ export const Sidebar = ({ activeModule, onChangeModule }) => {
             <div className="p-8 flex items-center gap-4 border-b border-slate-800">
                 <img src={logoProjecont} alt="GLF" className="w-10 h-10 rounded-lg shadow-lg shadow-blue-500/20" />
                 <div>
-                    <h1 className="text-xl font-bold tracking-tight">GLF Auditoria</h1>
+                    <h1 className="text-xl font-bold tracking-tight">GFS Auditoria</h1>
                     <p className="text-xs text-slate-400">Projecont RH Tools</p>
                 </div>
             </div>

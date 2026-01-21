@@ -1,87 +1,23 @@
+# backend/src/fopag/fopag_auditor.py
+
+import re
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from src.fopag import calculations
 from src.fopag import fopag_rules_catalog
 
-# ==============================================================================
-# CONFIGURAÇÕES E HELPERS
-# ==============================================================================
-
 
 def D(valor):
-    """Converte para Decimal de forma segura."""
     if valor is None:
         return Decimal("0.00")
     return Decimal(str(valor))
 
 
 def money_round(valor_decimal):
-    """Arredonda Decimal para 2 casas e devolve float (para JSON)."""
     if not isinstance(valor_decimal, Decimal):
         valor_decimal = D(valor_decimal)
     return float(valor_decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
-
-# LISTAS DE CÓDIGOS PARA FILTRAGEM
-CODIGOS_CONFIAVEIS = [
-    956,
-    323,
-    74,
-    32,
-    94,
-    950,
-    953,
-    955,
-    967,
-    934,
-    960,
-    961,
-    964,
-    972,
-    924,
-    927,
-    945,
-    928,
-    954,
-    963,
-    75,
-    30,
-    938,
-    916,
-    210,
-    910,
-    319,
-    300,
-    301,
-    302,
-    127,
-    968,
-    973,
-    978,
-    979,
-    392,
-    91,
-    92,
-    391,
-    100,
-    982,
-    915,
-    969,
-    971,
-    976,
-    977,
-    76,
-    77,
-    113,
-    115,
-    906,
-    322,
-    966,
-    981,
-    913,
-    914,
-    2,
-]
 
 CODIGOS_NAO_SOMAM_PROVENTOS = [
     955,
@@ -99,6 +35,31 @@ CODIGOS_NAO_SOMAM_PROVENTOS = [
     340,
 ]
 CODIGOS_PENSAO = ["340", "911", "912", "800"]
+CODIGOS_IGNORAR = [
+    "600",
+    "601",
+    "602",
+    "603",
+    "604",
+    "605",
+    "606",
+    "607",
+    "608",
+    "609",
+    "610",
+    "900",
+    "901",
+    "902",
+    "903",
+    "904",
+    "919",
+    "920",
+    "922",
+    "946",
+    "947",
+    "948",
+    "949",
+]
 
 
 def run_fopag_audit(
@@ -108,14 +69,11 @@ def run_fopag_audit(
     mes: int,
     caso_pensao: int = 2,
 ) -> list:
-    print(
-        f"[Auditor] Iniciando auditoria para a empresa: {company_code} (Ref: {mes}/{ano})..."
-    )
-
+    print(f"[Auditor 2026] Processando {company_code} - {mes}/{ano}...")
     try:
         company_rule = fopag_rules_catalog.get_company_rule(company_code)
     except Exception as e:
-        return [{"error": f"Falha ao carregar regras: {e}"}]
+        return [{"error": f"Erro de regras: {e}"}]
 
     auditoria_agrupada = {}
 
@@ -124,6 +82,7 @@ def run_fopag_audit(
         nome = funcionario.get("nome", "N/A")
         dependentes = funcionario.get("dependentes", 0)
 
+        # Prepara dados
         data_admissao = None
         if funcionario.get("data_admissao"):
             try:
@@ -138,8 +97,10 @@ def run_fopag_audit(
         is_aprendiz = "aprendiz" in tipo_contrato or "aprendiz" in cargo_nome
 
         dados_calendario = calculations.get_dias_uteis_dsr(ano, mes, data_admissao)
-        dias_uteis = dados_calendario["dias_uteis"]
-        dias_dsr = dados_calendario["dias_dsr"]
+        dias_uteis, dias_dsr = (
+            dados_calendario["dias_uteis"],
+            dados_calendario["dias_dsr"],
+        )
 
         if matricula not in auditoria_agrupada:
             auditoria_agrupada[matricula] = {
@@ -149,21 +110,27 @@ def run_fopag_audit(
                 "tem_divergencia": False,
             }
 
+        # --- REGISTRADOR COM SUPORTE A MEMÓRIA DETALHADA ---
         def registrar_item(
-            evento_nome, v_esperado, v_real, codigo, msg="", base=None, formula=""
+            evento_nome,
+            v_esperado,
+            v_real,
+            codigo,
+            msg="",
+            base=None,
+            formula="",
+            memoria=None,
         ):
             diferenca = v_real - v_esperado
-            abs_diff = abs(diferenca)
             is_ok = False
-
-            # ATUALIZAÇÃO: Tolerância aumentada para 10 centavos
-            if round(abs_diff, 2) <= 0.10:
+            if round(abs(diferenca), 2) <= 0.10:
                 is_ok = True
-
-            # Regra especial para DSR e Descanso (tolerância percentual de 5% continua)
-            elif "descanso" in evento_nome.lower() or "dsr" in evento_nome.lower():
-                if v_esperado > 0 and (abs_diff / v_esperado) < 0.05:
-                    is_ok = True
+            elif (
+                ("descanso" in evento_nome.lower() or "dsr" in evento_nome.lower())
+                and v_esperado > 0
+                and (abs(diferenca) / v_esperado) < 0.05
+            ):
+                is_ok = True
 
             status = "OK" if is_ok else "ERRO"
             if not is_ok:
@@ -177,52 +144,34 @@ def run_fopag_audit(
                     "real": round(v_real, 2),
                     "diferenca": round(diferenca, 2),
                     "status": status,
-                    "msg": msg if status == "ERRO" else "Validado com sucesso.",
+                    "msg": msg,
                     "base": round(base, 2) if base else 0.0,
                     "formula": formula,
+                    "memoria": memoria,  # Objeto JSON detalhado
                 }
             )
 
-        proventos_base = funcionario.get("proventos_base", [])
-        eventos_variaveis = funcionario.get("eventos_variaveis_referencia", [])
-        eventos_reais = funcionario.get("eventos_calculados_fortes", {})
-
-        # ======================================================================
-        # 1. DEFINIÇÃO DE BASES (USANDO DECIMAL)
-        # ======================================================================
+        # VARIÁVEIS
         salario_base = D(0)
-        base_para_he = D(0)
-
+        base_he = D(0)
         base_inss_acumulada = D(0)
         base_irrf_acumulada = D(0)
         base_fgts_acumulada = D(0)
+        total_proventos_brutos = D(0)
+        total_variaveis_para_dsr = D(0)
 
-        for evento in proventos_base:
-            cod = evento.get("codigo")
-            val = D(evento.get("valor", 0))
+        # 1. FIXOS
+        for evento in funcionario.get("proventos_base", []):
+            cod, val = evento.get("codigo"), D(evento.get("valor", 0))
             props = fopag_rules_catalog.get_event_properties(cod)
-            nome_ev = props.description if props else "Salário"
+            nome_ev = props.description if props else "Salário Base"
 
-            if cod == company_rule.cod_salario_base:
+            if cod == company_rule.cod_salario_base or cod in ["11", "001", "1"]:
                 salario_base = val
+                base_he = val
                 registrar_item(
-                    nome_ev,
-                    float(salario_base),
-                    float(salario_base),
-                    cod,
-                    formula="Valor Fixo Contratual",
+                    nome_ev, float(val), float(val), cod, formula="Fixo Contratual"
                 )
-
-            if cod in [company_rule.cod_salario_base, "31", "13"]:
-                base_para_he += val
-                if cod != company_rule.cod_salario_base:
-                    registrar_item(
-                        nome_ev,
-                        float(val),
-                        float(val),
-                        cod,
-                        formula="Verba Fixa (Compõe Base HE)",
-                    )
 
             if props:
                 if props.incide_inss:
@@ -231,337 +180,241 @@ def run_fopag_audit(
                     base_irrf_acumulada += val
                 if props.incide_fgts:
                     base_fgts_acumulada += val
+                total_proventos_brutos += val
 
-        # ======================================================================
-        # 2. CÁLCULO DE VARIÁVEIS
-        # ======================================================================
-        codigos_input = {e.get("codigo"): e for e in eventos_variaveis}
-        todos_codigos = set(codigos_input.keys()).union(set(eventos_reais.keys()))
+        # 2. DINÂMICO
+        eventos_reais = funcionario.get("eventos_calculados_fortes", {})
+        lista_eventos_completa = funcionario.get("eventos_variaveis_referencia", [])
+        mapa_eventos = {e["codigo"]: e for e in lista_eventos_completa}
 
-        total_he_calculada = D(0)
-        total_faltas_calculada = D(0)
-        total_variaveis_para_dsr = D(0)
-        eventos_calculados = {}
-        percentual_pensao = D(0)
-        total_proventos_brutos = base_para_he
+        eventos_dsr_pendentes = []
 
-        for codigo_var in todos_codigos:
-            dados_input = codigos_input.get(codigo_var, {})
-            referencia = dados_input.get("referencia", 0)
-            props = fopag_rules_catalog.get_event_properties(codigo_var)
-            nome_evento = props.description if props else f"Evento {codigo_var}"
-            valor_real_db = D(eventos_reais.get(codigo_var, 0))
-            try:
-                cod_int = int(codigo_var)
-            except:
-                cod_int = 0
-
-            # FILTROS
-            if codigo_var in [
-                company_rule.cod_salario_base,
-                company_rule.cod_periculosidade,
-                "31",
-                "49",
-                company_rule.cod_dsr_he,
-            ]:
+        for cod, val_float in eventos_reais.items():
+            valor_real = D(val_float)
+            if valor_real == 0:
                 continue
             if (
-                600 <= cod_int <= 699
-                or 900 <= cod_int <= 904
-                or 919 <= cod_int <= 922
-                or 946 <= cod_int <= 949
+                cod
+                in [
+                    company_rule.cod_salario_base,
+                    "11",
+                    "001",
+                    "1",
+                    "310",
+                    "311",
+                    "605",
+                    "INSS",
+                    "IRRF",
+                    "FGTS",
+                ]
+                + CODIGOS_IGNORAR
             ):
                 continue
 
-            valor_calculado_evento = D(0)
-            formula_memoria = ""
-
-            eh_confiavel = (cod_int in CODIGOS_CONFIAVEIS) or (
-                "consignado" in nome_evento.lower()
+            dados = mapa_eventos.get(cod, {})
+            props = fopag_rules_catalog.get_event_properties(cod)
+            nome = dados.get("descricao") or (
+                props.description if props else f"Evento {cod}"
             )
+            ref = D(dados.get("referencia", 0))
+            nome_upper = nome.upper()
 
-            if eh_confiavel:
-                valor_calculado_evento = valor_real_db
-                formula_memoria = "Leitura Direta"
-                if cod_int == 30 or cod_int == 75:
-                    total_variaveis_para_dsr += valor_calculado_evento
-
-            elif codigo_var == company_rule.cod_he_50:
-                horas_dec = D(
-                    calculations.time_to_decimal(referencia)
-                )  # CORREÇÃO AQUI: FORÇA D()
-                val_float = calculations.calc_he_50(
-                    float(base_para_he), float(horas_dec)
-                )
-                valor_calculado_evento = D(val_float)
-                total_he_calculada += valor_calculado_evento
-                total_variaveis_para_dsr += valor_calculado_evento
-                formula_memoria = (
-                    f"({float(base_para_he):.2f}/220) * 1.5 * {float(horas_dec):.2f}h"
-                )
-
-            elif codigo_var == company_rule.cod_he_100:
-                horas_dec = D(calculations.time_to_decimal(referencia))  # CORREÇÃO AQUI
-                val_float = calculations.calc_he_100(
-                    float(base_para_he), float(horas_dec)
-                )
-                valor_calculado_evento = D(val_float)
-                total_he_calculada += valor_calculado_evento
-                total_variaveis_para_dsr += valor_calculado_evento
-                formula_memoria = (
-                    f"({float(base_para_he):.2f}/220) * 2.0 * {float(horas_dec):.2f}h"
-                )
-
-            # C. FALTAS (Usando Decimal)
-            elif codigo_var == company_rule.cod_faltas:  # 321
-                dias_falta = D(referencia if referencia else 0)
-                valor_dia = salario_base / D(30)
-                valor_calculado_evento = (valor_dia * dias_falta).quantize(
-                    Decimal("0.01"), rounding=ROUND_HALF_UP
-                )
-                total_faltas_calculada += valor_calculado_evento
-                formula_memoria = (
-                    f"({float(salario_base):.2f} / 30) * {dias_falta} dias"
-                )
-
-            elif codigo_var == company_rule.cod_faltas_em_horas:  # 925
-                horas_dec = D(calculations.time_to_decimal(referencia))  # CORREÇÃO AQUI
-                valor_hora = salario_base / D(220)
-                valor_calculado_evento = (valor_hora * horas_dec).quantize(
-                    Decimal("0.01"), rounding=ROUND_HALF_UP
-                )
-                total_faltas_calculada += valor_calculado_evento
-                formula_memoria = (
-                    f"({float(salario_base):.2f} / 220) * {float(horas_dec):.2f}h"
-                )
-
-            elif codigo_var == company_rule.cod_dsr_desconto:  # 349
-                qtd_dsr_desc = D(
-                    calculations.time_to_decimal(referencia)
-                )  # CORREÇÃO AQUI: FORÇA D()
-                valor_dia = salario_base / D(30)
-                valor_calculado_evento = (valor_dia * qtd_dsr_desc).quantize(
-                    Decimal("0.01"), rounding=ROUND_HALF_UP
-                )
-                formula_memoria = (
-                    f"({float(salario_base):.2f} / 30) * {float(qtd_dsr_desc)} dias"
-                )
-
-            # ADICIONAIS
-            elif (
-                "noturno" in nome_evento.lower()
-                or codigo_var == company_rule.cod_adic_noturno
-            ):
-                if referencia:
-                    h = D(calculations.time_to_decimal(referencia))
-                    if codigo_var == "012":
-                        dias = int(referencia)
-                        val_float = calculations.calc_adicional_noturno_012(
-                            float(salario_base), dias_uteis, dias
-                        )
-                        valor_calculado_evento = D(val_float)
-                        formula_memoria = f"({float(salario_base):.2f} / {dias_uteis}) * {dias}d * 20%"
-                    else:
-                        val_float = calculations.calc_adicional_noturno(
-                            float(base_para_he), float(h)
-                        )
-                        valor_calculado_evento = D(val_float)
-                        formula_memoria = (
-                            f"({float(base_para_he):.2f}/220) * 20% * {float(h):.2f}h"
-                        )
-                else:
-                    valor_calculado_evento = valor_real_db
-                total_variaveis_para_dsr += valor_calculado_evento
-
-            elif codigo_var == company_rule.cod_vale_transporte:
-                val_float = calculations.calc_vale_transporte(
-                    float(salario_base), company_rule.percentual_vt
-                )
-                valor_calculado_evento = D(val_float)
-                formula_memoria = f"6% de R$ {float(salario_base):.2f}"
-
-            elif codigo_var == company_rule.cod_salario_familia:
-                qtd = int(referencia if referencia else 0)
-                val_float = calculations.calc_salario_familia(
-                    float(base_inss_acumulada),
-                    qtd,
-                    company_rule.valor_cota_salario_familia,
-                )
-                valor_calculado_evento = D(val_float)
-                formula_memoria = (
-                    f"{qtd} filhos * R$ {company_rule.valor_cota_salario_familia}"
-                )
-
-            elif codigo_var == company_rule.cod_salario_maternidade:
-                valor_calculado_evento = valor_real_db
-
-            if "pensao" in nome_evento.lower() or str(cod_int) in CODIGOS_PENSAO:
-                if referencia:
-                    percentual_pensao = D(referencia)
-
-            eventos_calculados[codigo_var] = {
-                "valor": valor_calculado_evento,
-                "formula": formula_memoria,
-                "nome": nome_evento,
-            }
-
-            if (
-                valor_calculado_evento > 0
-                and cod_int not in CODIGOS_NAO_SOMAM_PROVENTOS
-            ):
-                if props and props.type == "Provento":
-                    total_proventos_brutos += valor_calculado_evento
-
-        # --- 3. DSR PROVENTO (49) ---
-        dsr_codigo = company_rule.cod_dsr_he if company_rule.cod_dsr_he else "49"
-        if total_variaveis_para_dsr > 0 or dsr_codigo in eventos_reais:
-            val_dsr_float = calculations.calc_dsr(
-                float(total_variaveis_para_dsr), dias_uteis, dias_dsr
-            )
-            val_dsr = D(val_dsr_float)
-            formula_dsr = (
-                f"({float(total_variaveis_para_dsr):.2f} / {dias_uteis}) * {dias_dsr}"
-            )
-            eventos_calculados[dsr_codigo] = {
-                "valor": val_dsr,
-                "formula": formula_dsr,
-                "nome": "Descanso Semanal Remunerado",
-            }
-            if val_dsr > 0:
-                total_proventos_brutos += val_dsr
-
-        # --- 4. AUDITORIA FINAL ---
-        for codigo_var, dados_calc in eventos_calculados.items():
-            valor_calculado = dados_calc["valor"]
-            formula = dados_calc["formula"]
-            nome_exibicao = dados_calc["nome"]
-            valor_real = D(eventos_reais.get(codigo_var, 0))
-            try:
-                cod_int = int(codigo_var)
-            except:
-                cod_int = 0
-
-            if (
-                600 <= cod_int <= 699
-                or 900 <= cod_int <= 904
-                or 919 <= cod_int <= 922
-                or 946 <= cod_int <= 949
-            ):
-                continue
-            if (
-                codigo_var in [company_rule.cod_inss, company_rule.cod_irrf, "FGTS"]
-                or str(cod_int) in CODIGOS_PENSAO
-            ):
+            if "DSR" in nome_upper or "DESCANSO" in nome_upper:
+                eventos_dsr_pendentes.append((cod, nome, valor_real, ref))
                 continue
 
-            props = fopag_rules_catalog.get_event_properties(codigo_var)
+            valor_esp = valor_real
+            formula = "Original"
+            memoria = None
+
+            # --- CÁLCULO HE ---
+            if "HORA" in nome_upper and ("EXTRA" in nome_upper or "HE" in nome_upper):
+                match = re.search(r"(\d+)%", nome_upper)
+                pct = (
+                    int(match.group(1))
+                    if match
+                    else (100 if "100" in nome_upper else 50)
+                )
+
+                if ref > 0:
+                    h_dec = D(calculations.time_to_decimal(ref))
+                    v_calc = D(
+                        calculations.calc_he_generica(float(base_he), float(h_dec), pct)
+                    )
+                    valor_esp = v_calc
+                    formula = f"HE {pct}%"
+                    total_variaveis_para_dsr += valor_esp
+
+                    # Memória de Cálculo Rica
+                    memoria = {
+                        "tipo": "Cálculo de Hora Extra",
+                        "variaveis": [
+                            {
+                                "nome": "Salário Base (Base HE)",
+                                "valor": f"R$ {base_he:,.2f}",
+                            },
+                            {"nome": "Divisor", "valor": 220},
+                            {"nome": "Adicional", "valor": f"{pct}%"},
+                            {"nome": "Qtd. Horas", "valor": f"{h_dec:.2f}"},
+                        ],
+                        "passos": [
+                            f"Valor Hora = {float(base_he):.2f} / 220 = {float(base_he)/220:.4f}",
+                            f"Valor Hora + Adicional = Valor Hora * {1 + pct/100:.2f}",
+                            f"Total = (Valor Hora + Adic) * {float(h_dec):.2f}",
+                        ],
+                        "resultado": f"R$ {float(valor_esp):.2f}",
+                    }
+
+            # --- PERICULOSIDADE ---
+            elif "PERICULOSIDADE" in nome_upper:
+                valor_esp = D(calculations.calc_periculosidade(float(salario_base)))
+                formula = "30% Salário"
+                base_he += valor_esp  # Periculosidade compõe base HE
+
+                memoria = {
+                    "tipo": "Adicional de Periculosidade",
+                    "variaveis": [
+                        {"nome": "Salário Base", "valor": f"R$ {salario_base:,.2f}"},
+                        {"nome": "Percentual", "valor": "30%"},
+                    ],
+                    "passos": [f"{float(salario_base):.2f} * 0.30"],
+                    "resultado": f"R$ {float(valor_esp):.2f}",
+                }
+
+            # Acumula bases
+            valor_final_base = valor_esp
+            if cod not in CODIGOS_NAO_SOMAM_PROVENTOS:
+                total_proventos_brutos += valor_final_base
+                base_inss_acumulada += valor_final_base
+                base_irrf_acumulada += valor_final_base
+                base_fgts_acumulada += valor_final_base
+
             registrar_item(
-                nome_exibicao,
-                money_round(valor_calculado),
+                nome,
+                money_round(valor_esp),
                 money_round(valor_real),
-                codigo_var,
+                cod,
                 formula=formula,
+                base=float(ref),
+                memoria=memoria,
             )
 
-            if props:
-                if str(cod_int) in ["31", "11", "13"]:
-                    continue
-                if cod_int == 955:
-                    continue
+        # DSR
+        for cod, nome, valor_real, ref in eventos_dsr_pendentes:
+            valor_esp = valor_real
+            formula = "DSR (Base desconhecida)"
+            memoria = None
 
-                if props.type == "Provento":
-                    if props.incide_inss:
-                        base_inss_acumulada += valor_calculado
-                    if props.incide_irrf:
-                        base_irrf_acumulada += valor_calculado
-                    if props.incide_fgts:
-                        base_fgts_acumulada += valor_calculado
-                elif props.type == "Desconto":
-                    if props.incide_inss:
-                        base_inss_acumulada -= valor_calculado
-                    if props.incide_irrf:
-                        base_irrf_acumulada -= valor_calculado
-                    if props.incide_fgts:
-                        base_fgts_acumulada -= valor_calculado
+            if total_variaveis_para_dsr > 0 and dias_uteis > 0:
+                v_dsr = D(
+                    calculations.calc_dsr(
+                        float(total_variaveis_para_dsr), dias_uteis, dias_dsr
+                    )
+                )
+                if abs(v_dsr - valor_real) < 5.00:
+                    valor_esp = v_dsr
+                    formula = f"DSR S/ Variáveis"
+                    memoria = {
+                        "tipo": "Descanso Semanal Remunerado",
+                        "variaveis": [
+                            {
+                                "nome": "Total Variáveis (HE/Adic)",
+                                "valor": f"R$ {total_variaveis_para_dsr:,.2f}",
+                            },
+                            {"nome": "Dias Úteis", "valor": dias_uteis},
+                            {"nome": "Domingos/Feriados", "valor": dias_dsr},
+                        ],
+                        "passos": [
+                            f"Média Diária = {float(total_variaveis_para_dsr):.2f} / {dias_uteis}",
+                            f"Total = Média Diária * {dias_dsr}",
+                        ],
+                        "resultado": f"R$ {float(valor_esp):.2f}",
+                    }
 
-        # --- 5. IMPOSTOS ---
-        inss_esperado = 0.0
-        if company_rule.usa_calc_inss:
-            inss_esperado = calculations.calc_inss(float(base_inss_acumulada))
-            inss_real = float(eventos_reais.get(company_rule.cod_inss, 0))
+            total_proventos_brutos += valor_esp
+            base_inss_acumulada += valor_esp
+            base_irrf_acumulada += valor_esp
+            base_fgts_acumulada += valor_esp
+
             registrar_item(
-                "INSS",
-                inss_esperado,
-                inss_real,
-                company_rule.cod_inss,
-                base=float(base_inss_acumulada),
-                formula="Tabela 2025",
+                nome,
+                money_round(valor_esp),
+                money_round(valor_real),
+                cod,
+                formula=formula,
+                memoria=memoria,
             )
 
-        irrf_esperado = 0.0
-        if company_rule.usa_calc_irrf:
-            irrf_esperado = calculations.calc_irrf(
-                float(base_irrf_acumulada), inss_esperado, dependentes
-            )
-            irrf_real = float(eventos_reais.get(company_rule.cod_irrf, 0))
-            registrar_item(
-                "IRRF",
-                irrf_esperado,
-                irrf_real,
-                company_rule.cod_irrf,
-                base=float(base_irrf_acumulada),
-                formula="Tabela 2025",
-            )
+        # 3. IMPOSTOS (COM MEMÓRIA RICA)
+        # INSS
+        inss_esp = calculations.calc_inss(float(base_inss_acumulada))
+        inss_real = float(
+            eventos_reais.get("310", eventos_reais.get(company_rule.cod_inss, 0))
+        )
 
-        # PENSÃO
-        cod_pensao_encontrado = None
-        valor_pensao_real = 0.0
-        for cod in CODIGOS_PENSAO:
-            if events_val := eventos_reais.get(cod):
-                cod_pensao_encontrado = cod
-                valor_pensao_real = float(events_val)
-                break
+        mem_inss = {
+            "tipo": "INSS (Tabela Progressiva 2026)",
+            "variaveis": [
+                {"nome": "Base de Cálculo", "valor": f"R$ {base_inss_acumulada:,.2f}"}
+            ],
+            "passos": ["Aplicação das faixas progressivas sobre a base."],
+            "resultado": f"R$ {inss_esp:.2f}",
+        }
+        registrar_item(
+            "INSS",
+            inss_esp,
+            inss_real,
+            "310",
+            base=float(base_inss_acumulada),
+            formula="Tab. 2026",
+            memoria=mem_inss,
+        )
 
-        if not cod_pensao_encontrado:
-            for cod, val in eventos_reais.items():
-                if str(cod) in CODIGOS_PENSAO:
-                    cod_pensao_encontrado = str(cod)
-                    valor_pensao_real = val
-                    break
+        # IRRF
+        irrf_esp = calculations.calc_irrf(
+            float(base_irrf_acumulada), inss_esp, dependentes
+        )
+        irrf_real = float(
+            eventos_reais.get("311", eventos_reais.get(company_rule.cod_irrf, 0))
+        )
 
-        if cod_pensao_encontrado and percentual_pensao > 0:
-            valor_esperado_pensao = calculations.calc_pensao_alimenticia(
-                float(total_proventos_brutos),
-                float(salario_base),
-                inss_esperado,
-                irrf_esperado,
-                float(percentual_pensao),
-                caso_pensao,
-            )
-            formula_pensao = (
-                f"Percentual {percentual_pensao}% sobre Regra Caso {caso_pensao}"
-            )
-            registrar_item(
-                f"Pensão ({cod_pensao_encontrado})",
-                valor_esperado_pensao,
-                valor_pensao_real,
-                cod_pensao_encontrado,
-                formula=formula_pensao,
-            )
+        base_liq_irrf = float(base_irrf_acumulada) - inss_esp - (dependentes * 189.59)
+
+        mem_irrf = {
+            "tipo": "IRRF (Nova Regra 2026)",
+            "variaveis": [
+                {"nome": "Rendimento Bruto", "valor": f"R$ {base_irrf_acumulada:,.2f}"},
+                {"nome": "Dedução INSS", "valor": f"R$ {inss_esp:,.2f}"},
+                {"nome": "Dependentes", "valor": dependentes},
+                {"nome": "Base Líquida Legal", "valor": f"R$ {base_liq_irrf:,.2f}"},
+            ],
+            "passos": [
+                "1. Calcular Imposto Parcial sobre Base Líquida (Tabela Progressiva)",
+                "2. Calcular Redução Simplificada (Fórmula sobre Renda Bruta)",
+                "3. Final = Max(0, Parcial - Redução)",
+            ],
+            "resultado": f"R$ {irrf_esp:.2f}",
+        }
+        registrar_item(
+            "IRRF",
+            irrf_esp,
+            irrf_real,
+            "311",
+            base=float(base_irrf_acumulada),
+            formula="Redução 2026",
+            memoria=mem_irrf,
+        )
 
         # FGTS
-        if company_rule.usa_calc_fgts:
-            fgts_esperado = calculations.calc_fgts(
-                float(base_fgts_acumulada), is_aprendiz=is_aprendiz
-            )
-            fgts_real = float(eventos_reais.get("FGTS", eventos_reais.get("605", 0)))
-            registrar_item(
-                "FGTS",
-                fgts_esperado,
-                fgts_real,
-                "FGTS",
-                base=float(base_fgts_acumulada),
-                formula="8% (ou 2% aprendiz)",
-            )
+        fgts_esp = calculations.calc_fgts(float(base_fgts_acumulada), is_aprendiz)
+        fgts_real = float(eventos_reais.get("605", 0))
+        registrar_item(
+            "FGTS",
+            fgts_esp,
+            fgts_real,
+            "605",
+            base=float(base_fgts_acumulada),
+            formula="8%",
+        )
 
     return list(auditoria_agrupada.values())

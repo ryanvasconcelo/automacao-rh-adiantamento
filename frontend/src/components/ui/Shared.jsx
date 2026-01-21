@@ -1,7 +1,7 @@
 // frontend/src/components/ui/Shared.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, ChevronDown, Calendar, Check, ChevronRight, ChevronLeft, Search, LayoutDashboard, CalendarClock, Calculator } from 'lucide-react';
+import { Loader2, ChevronDown, X, Hash, Calendar, Check, ChevronRight, ChevronLeft, Search, LayoutDashboard, CalendarClock, Calculator } from 'lucide-react';
 import logoProjecont from '../../assets/logoProjecont.jpeg';
 
 // --- WRAPPER DE ANIMAÇÃO ---
@@ -35,7 +35,7 @@ export const CollapsibleSidebar = ({ activeModule, onChangeModule, isOpen, toggl
                 <img src={logoProjecont} alt="GLF" className="w-10 h-10 rounded-lg shadow-lg shadow-blue-500/20 flex-shrink-0" />
                 {isOpen && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="whitespace-nowrap overflow-hidden">
-                        <h1 className="text-xl font-bold tracking-tight">GLF Auditoria</h1>
+                        <h1 className="text-xl font-bold tracking-tight">GFS Auditoria</h1>
                         <p className="text-xs text-slate-400">Projecont RH Tools</p>
                     </motion.div>
                 )}
@@ -282,3 +282,70 @@ export const Toggle = ({ enabled, onChange, label }) => (
         {label && <span className={`ml-3 text-sm font-medium ${enabled ? 'text-emerald-700' : 'text-slate-500'}`}>{label}</span>}
     </div>
 );
+
+// --- MODAL DE DETALHES DE CÁLCULO ---
+export const CalculationModal = ({ isOpen, onClose, data }) => {
+    if (!isOpen || !data) return null;
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+            <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border border-slate-100"
+            >
+                {/* Header */}
+                <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-800">{data.tipo || "Detalhes do Cálculo"}</h3>
+                        <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Memória de Auditoria</p>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                        <X size={20} className="text-slate-400" />
+                    </button>
+                </div>
+
+                {/* Body */}
+                <div className="p-6 space-y-6">
+                    {/* Variáveis */}
+                    <div>
+                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
+                            <Hash size={12} /> Variáveis Utilizadas
+                        </h4>
+                        <div className="grid grid-cols-2 gap-3">
+                            {data.variaveis?.map((v, i) => (
+                                <div key={i} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                    <p className="text-[10px] text-slate-500 font-semibold uppercase">{v.nome}</p>
+                                    <p className="text-sm font-mono font-bold text-slate-700">{v.valor}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Passos */}
+                    {data.passos && (
+                        <div>
+                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
+                                <Calculator size={12} /> Roteiro de Cálculo
+                            </h4>
+                            <ul className="space-y-2">
+                                {data.passos.map((p, i) => (
+                                    <li key={i} className="text-xs text-slate-600 font-mono bg-blue-50/50 p-2 rounded-lg border border-blue-100 flex gap-2">
+                                        <span className="text-blue-400 font-bold">{i + 1}.</span> {p}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
+                    {/* Resultado */}
+                    <div className="bg-slate-900 text-white p-4 rounded-xl flex justify-between items-center shadow-lg">
+                        <span className="text-xs font-bold uppercase text-slate-400">Resultado Esperado</span>
+                        <span className="text-xl font-mono font-bold text-emerald-400">{data.resultado}</span>
+                    </div>
+                </div>
+            </motion.div>
+        </div>
+    );
+};

@@ -1,334 +1,236 @@
+# backend/src/fopag/calculations.py
+
 import math
 import calendar
 from datetime import date, timedelta
 import holidays
 
-# --- CONSTANTES DE INSS (Vigência 2025 - Base SM R$ 1.621,00) ---
-INSS_TABLE_2025 = [
+# ==============================================================================
+# CONSTANTES E TABELAS - VIGÊNCIA 2026 (Ajustado conforme Print Fortes)
+# ==============================================================================
+
+# --- INSS 2026 ---
+INSS_TETO = 988.07
+INSS_TABLE = [
     (1621.00, 0.075, 0.00),
     (2902.84, 0.09, 22.77),
     (4354.27, 0.12, 106.59),
     (8475.55, 0.14, 190.40),
 ]
-INSS_TETO_2025 = 988.07
 
-# --- CONSTANTES DE IRRF (Vigência 2025) ---
-IRRF_DEDUCAO_DEPENDENTE_2025 = 189.59
-IRRF_TABLE_2025 = [
+# --- SALÁRIO FAMÍLIA 2026 ---
+TETO_SALARIO_FAMILIA = 1980.38
+VALOR_COTA_SALARIO_FAMILIA = 67.54
+
+# --- IRRF 2026 ---
+# Conforme print: A dedução da última faixa é 908.73
+IRRF_DEDUCAO_DEPENDENTE = 189.59
+
+IRRF_TABLE = [
     (2259.20, 0.0, 0.0),
     (2826.65, 0.075, 169.44),
     (3751.05, 0.15, 381.44),
     (4664.68, 0.225, 662.77),
-    (float("inf"), 0.275, 896.00),
+    (float("inf"), 0.275, 908.73),  # Valor exato do print
 ]
 
 DIVISOR_HORA_PADRAO = 220.0
-PERCENTUAL_DSR_PLACEHOLDER = 0.20
-
-# --- CONSTANTES PARA SALÁRIO FAMÍLIA ---
-TETO_SALARIO_FAMILIA = 1980.38
-VALOR_COTA_SALARIO_FAMILIA = 67.54
-
 
 # ==============================================================================
-# HELPERS (CONVERSÃO E ARREDONDAMENTO)
+# HELPERS
 # ==============================================================================
 
 
 def time_to_decimal(entrada) -> float:
     """
     Converte referências de tempo para decimal (horas).
-    Ex: "00:30" -> 0.5
+    CORREÇÃO CRÍTICA: Se vier float (ex: 95.00), assume que já são horas.
+    Só converte se vier string com ':' (ex: '95:30').
     """
     try:
+        # Se já é número, retorna direto (O banco manda 95.0 para 95 horas)
         if isinstance(entrada, (float, int)):
-            valor = float(entrada)
-            if valor >= 24:
-                return valor / 60.0
-            return valor
+            return float(entrada)
 
         s_entrada = str(entrada).strip()
 
+        # Se tem dois pontos, é formato hora:minuto
         if ":" in s_entrada:
             partes = s_entrada.split(":")
             h = int(partes[0])
             m = int(partes[1])
             return h + (m / 60.0)
 
-        valor = float(s_entrada)
-        if valor >= 24:
-            return valor / 60.0
-        return valor
+        # Se é string numérica simples, converte para float
+        return float(s_entrada)
 
     except Exception as e:
-        print(f"[ERRO] time_to_decimal falhou para entrada '{entrada}': {e}")
+        print(f"[ERRO] time_to_decimal falhou para '{entrada}': {e}")
         return 0.0
 
 
 def truncate(number, digits) -> float:
-    """
-    Trunca um número para uma quantidade específica de casas decimais
-    sem arredondar para cima.
-    Ex: truncate(150.058, 2) -> 150.05 (round daria 150.06)
-    """
     stepper = 10.0**digits
     return math.trunc(stepper * number) / stepper
 
 
 # ==============================================================================
-# LÓGICA DE CALENDÁRIO
+# CÁLCULOS
 # ==============================================================================
+
+
 def get_dias_uteis_dsr(ano: int, mes: int, data_admissao: date = None) -> dict:
-    """
-    Calcula dias úteis e DSR (Domingos + Feriados) considerando feriados de Manaus/AM.
-    """
-    feriados = holidays.Brazil(state="AM", years=ano)
-    feriados.append({date(ano, 10, 24): "Aniversário de Manaus"})
-    feriados.append({date(ano, 12, 8): "Nossa Senhora da Conceição"})
+    try:
+        feriados = holidays.Brazil(state="AM", years=ano)
+        feriados.append({date(ano, 10, 24): "Aniversário de Manaus"})
+        feriados.append({date(ano, 12, 8): "Nossa Senhora da Conceição"})
+    except:
+        feriados = []
 
-    ultimo_dia_mes = calendar.monthrange(ano, mes)[1]
-    data_inicio_mes = date(ano, mes, 1)
-    data_fim_mes = date(ano, mes, ultimo_dia_mes)
+    ultimo_dia = calendar.monthrange(ano, mes)[1]
+    inicio = date(ano, mes, 1)
+    fim = date(ano, mes, ultimo_dia)
+    inicio_contagem = (
+        data_admissao
+        if (data_admissao and data_admissao.year == ano and data_admissao.month == mes)
+        else inicio
+    )
 
-    is_admissao_mes = False
-    data_inicio_contagem = data_inicio_mes
+    domingos = 0
+    feriados_qtd = 0
+    curr = inicio_contagem
+    while curr <= fim:
+        if curr.weekday() == 6:
+            domingos += 1
+        elif curr in feriados:
+            feriados_qtd += 1
+        curr += timedelta(days=1)
 
-    if data_admissao and data_admissao.year == ano and data_admissao.month == mes:
-        is_admissao_mes = True
-        data_inicio_contagem = data_admissao
+    dsr = domingos + feriados_qtd
+    uteis = ((fim - inicio_contagem).days + 1) - dsr
+    if uteis <= 0:
+        uteis = 1
 
-    qtd_domingos = 0
-    qtd_feriados = 0
-
-    current_date = data_inicio_contagem
-    while current_date <= data_fim_mes:
-        is_domingo = current_date.weekday() == 6
-        is_feriado = current_date in feriados
-
-        if is_domingo:
-            qtd_domingos += 1
-        elif is_feriado:
-            qtd_feriados += 1
-
-        current_date += timedelta(days=1)
-
-    total_dsr = qtd_domingos + qtd_feriados
-
-    if is_admissao_mes:
-        dias_totais_contrato = (data_fim_mes - data_inicio_contagem).days + 1
-        dias_uteis = dias_totais_contrato - total_dsr
-    else:
-        dias_uteis = 30 - total_dsr
-
-    if dias_uteis <= 0:
-        dias_uteis = 1
-
-    print(f"[Calendário] {mes}/{ano}: Úteis={dias_uteis}, DSR={total_dsr}")
-
-    return {"dias_uteis": dias_uteis, "dias_dsr": total_dsr}
-
-
-# ==============================================================================
-# FUNÇÕES DE CÁLCULO - IMPOSTOS
-# ==============================================================================
+    return {"dias_uteis": uteis, "dias_dsr": dsr}
 
 
 def calc_inss(salario_bruto: float) -> float:
-    """Calcula o valor do INSS (TRUNCANDO na 2ª casa)."""
-    if salario_bruto >= 7786.02:
-        return INSS_TETO_2025
-
-    inss_calculado = 0.0
-    for limite, aliquota, deducao in INSS_TABLE_2025:
+    if salario_bruto > INSS_TABLE[-1][0]:
+        return INSS_TETO
+    inss = 0.0
+    for limite, aliq, deducao in INSS_TABLE:
         if salario_bruto <= limite:
-            inss_calculado = (salario_bruto * aliquota) - deducao
+            inss = (salario_bruto * aliq) - deducao
             break
-
-    if inss_calculado == 0.0:
-        limite, aliquota, deducao = INSS_TABLE_2025[-1]
-        inss_calculado = (salario_bruto * aliquota) - deducao
-
-    # ALTERAÇÃO: Usar truncate para bater com o Fortes
-    final_value = truncate(inss_calculado, 2)
-    print(f"[Cálculo] INSS: Base R$ {salario_bruto:.2f}, Calculado R$ {final_value}")
-    return final_value
+    if inss == 0.0 and salario_bruto > INSS_TABLE[0][0]:
+        limite, aliq, deducao = INSS_TABLE[-1]
+        inss = (salario_bruto * aliq) - deducao
+    return truncate(inss, 2)
 
 
 def calc_irrf(
-    base_bruta_irrf: float, inss_descontado: float, dependentes: int
+    rendimento_bruto_tributavel: float, inss_descontado: float, dependentes: int
 ) -> float:
-    """Calcula o valor do IRRF (Arredondamento padrão)."""
-    deducao_dependentes = dependentes * IRRF_DEDUCAO_DEPENDENTE_2025
-    base_de_calculo_irrf = base_bruta_irrf - inss_descontado - deducao_dependentes
+    """
+    Calcula o IRRF 2026 com redução simplificada.
+    Valores validados com o print do Fortes.
+    """
+    # 1. Base Líquida
+    deducao_dep = dependentes * IRRF_DEDUCAO_DEPENDENTE
+    base_calculo_liquida = rendimento_bruto_tributavel - inss_descontado - deducao_dep
 
-    irrf_calculado = 0.0
-    for limite, aliquota, deducao in IRRF_TABLE_2025:
-        if base_de_calculo_irrf <= limite:
-            irrf_calculado = (base_de_calculo_irrf * aliquota) - deducao
+    # 2. Imposto Parcial (Tabela)
+    irrf_parcial = 0.0
+    for limite, aliq, deducao in IRRF_TABLE:
+        if base_calculo_liquida <= limite:
+            irrf_parcial = (base_calculo_liquida * aliq) - deducao
             break
 
-    final_value = round(irrf_calculado, 2)
-    print(
-        f"[Cálculo] IRRF: Base Líquida R$ {base_de_calculo_irrf:.2f}, Calculado R$ {final_value}"
-    )
+    if base_calculo_liquida > IRRF_TABLE[-2][0]:
+        _, aliq_max, deducao_max = IRRF_TABLE[-1]
+        irrf_parcial = (base_calculo_liquida * aliq_max) - deducao_max
 
-    return max(0.0, final_value)
+    irrf_parcial = max(0.0, irrf_parcial)
 
+    # 3. Redução (Lei 15.022/2026)
+    reducao = 0.0
+    if rendimento_bruto_tributavel <= 5000.00:
+        reducao = min(irrf_parcial, 312.89)
+    elif rendimento_bruto_tributavel <= 7350.00:
+        # Fórmula exata do print: 978,62 - (0,133145 * Renda)
+        fator_reducao = 978.62 - (0.133145 * rendimento_bruto_tributavel)
+        reducao = max(0.0, fator_reducao)
 
-def calc_fgts(base_de_calculo_fgts: float, is_aprendiz: bool = False) -> float:
-    """
-    Calcula o FGTS (TRUNCANDO na 2ª casa).
-    """
-    aliquota = 0.02 if is_aprendiz else 0.08
-    # ALTERAÇÃO: Truncar para evitar arredondamento para cima em dízimas
-    fgts_calculado = truncate(base_de_calculo_fgts * aliquota, 2)
+    irrf_final = max(0.0, irrf_parcial - reducao)
 
-    tipo = "Aprendiz (2%)" if is_aprendiz else "Normal (8%)"
-    print(
-        f"[Cálculo] FGTS [{tipo}]: Base R$ {base_de_calculo_fgts:.2f}, Calculado R$ {fgts_calculado}"
-    )
+    # Debug no console do backend para validação
+    # print(f"DEBUG IRRF: Bruto={rendimento_bruto_tributavel:.2f} BaseLiq={base_calculo_liquida:.2f} Parcial={irrf_parcial:.2f} Reducao={reducao:.2f} Final={irrf_final:.2f}")
 
-    return fgts_calculado
-
-
-# ==============================================================================
-# FUNÇÕES DE CÁLCULO - HORAS E ADICIONAIS
-# ==============================================================================
+    return round(irrf_final, 2)
 
 
-def _get_salario_hora(salario_base: float) -> float:
-    """Função auxiliar para calcular o valor da hora."""
-    if salario_base == 0:
+def calc_fgts(base: float, is_aprendiz: bool = False) -> float:
+    aliq = 0.02 if is_aprendiz else 0.08
+    return truncate(base * aliq, 2)
+
+
+# --- CÁLCULOS ---
+def _get_salario_hora(salario: float) -> float:
+    return salario / DIVISOR_HORA_PADRAO if salario > 0 else 0.0
+
+
+def calc_he_generica(salario: float, horas: float, percentual: float) -> float:
+    """HE com qualquer %."""
+    salario_hora = _get_salario_hora(salario)
+    fator = 1 + (percentual / 100.0)
+    return round(salario_hora * fator * horas, 2)
+
+
+def calc_adicional_noturno(salario: float, horas: float) -> float:
+    return round((_get_salario_hora(salario) * 0.20) * horas, 2)
+
+
+def calc_periculosidade(salario: float) -> float:
+    return round(salario * 0.30, 2)
+
+
+def calc_dsr(valor_variavel: float, uteis: int, dsr: int) -> float:
+    if uteis == 0:
         return 0.0
-    return salario_base / DIVISOR_HORA_PADRAO
+    return round((valor_variavel / uteis) * dsr, 2)
 
 
-def calc_he_50(salario_base: float, total_horas: float) -> float:
-    """Calcula o valor da Hora Extra 50%."""
-    salario_hora = _get_salario_hora(salario_base)
-    valor_he_50 = (salario_hora * 1.5) * total_horas
-
-    final_value = round(valor_he_50, 2)
-    print(
-        f"[Cálculo] HE 50%: Salário-Hora R$ {salario_hora:.2f}, Horas {total_horas}, Calculado R$ {final_value}"
-    )
-
-    return final_value
-
-
-def calc_he_100(salario_base: float, total_horas: float) -> float:
-    """Calcula o valor da Hora Extra 100%."""
-    salario_hora = _get_salario_hora(salario_base)
-    valor_he_100 = (salario_hora * 2.0) * total_horas
-
-    final_value = round(valor_he_100, 2)
-    print(
-        f"[Cálculo] HE 100%: Salário-Hora R$ {salario_hora:.2f}, Horas {total_horas}, Calculado R$ {final_value}"
-    )
-
-    return final_value
-
-
-def calc_adicional_noturno(salario_base: float, total_horas: float) -> float:
-    """
-    Calcula o valor do Adicional Noturno (20% sobre a hora normal).
-    """
-    salario_hora = _get_salario_hora(salario_base)
-    valor_adicional = (salario_hora * 0.20) * total_horas
-
-    final_value = round(valor_adicional, 2)
-    print(
-        f"[Cálculo] Adic. Noturno: Salário-Hora R$ {salario_hora:.2f}, Horas {total_horas}, Calculado R$ {final_value}"
-    )
-
-    return final_value
-
-
-def calc_adicional_noturno_012(
-    salario_base: float, dias_uteis: int, dias_trabalhados: int
-) -> float:
-    """
-    Calcula o Adicional Noturno 012 (incide sobre salário contratual).
-    """
-    if dias_uteis == 0:
+def calc_salario_familia(remuneracao: float, filhos: int) -> float:
+    if filhos <= 0:
         return 0.0
-
-    valor_dia = salario_base / dias_uteis
-    valor_adicional = valor_dia * dias_trabalhados * 0.20
-
-    final_value = round(valor_adicional, 2)
-    print(
-        f"[Cálculo] Adic. Noturno 012 (s/ Salário): Base R$ {salario_base:.2f}, Dias {dias_trabalhados}, Calculado R$ {final_value}"
-    )
-
-    return final_value
+    if remuneracao <= TETO_SALARIO_FAMILIA:
+        return round(filhos * VALOR_COTA_SALARIO_FAMILIA, 2)
+    return 0.0
 
 
-def calc_adicional_noturno_050(total_horas: float, valor_hora: float) -> float:
-    """
-    Calcula o Adicional Noturno 050 (incide sobre horas trabalhadas).
-    """
-    valor_adicional = total_horas * valor_hora * 0.20
-
-    final_value = round(valor_adicional, 2)
-    print(
-        f"[Cálculo] Adic. Noturno 050 (s/ Horas): Horas {total_horas}, Valor/Hora R$ {valor_hora:.2f}, Calculado R$ {final_value}"
-    )
-
-    return final_value
+def calc_vale_transporte(salario: float, percentual: float = 0.06) -> float:
+    return round(salario * percentual, 2)
 
 
-def calc_periculosidade(salario_base: float) -> float:
-    """Calcula a Periculosidade (30% sobre o Salário Base)."""
-    valor_periculosidade = salario_base * 0.30
-
-    final_value = round(valor_periculosidade, 2)
-    print(
-        f"[Cálculo] Periculosidade: Salário Base R$ {salario_base:.2f}, Calculado R$ {final_value}"
-    )
-
-    return final_value
+# Wrappers Legado
+def calc_he_50(salario, horas):
+    return calc_he_generica(salario, horas, 50)
 
 
-# ==============================================================================
-# FUNÇÕES DE CÁLCULO - DSR
-# ==============================================================================
+def calc_he_100(salario, horas):
+    return calc_he_generica(salario, horas, 100)
 
 
-def calc_dsr(base_valor: float, dias_uteis: int, dias_dsr: int) -> float:
-    """
-    Calcula o DSR (Descanso Semanal Remunerado) - Código 49.
-    """
-    if base_valor <= 0 or dias_uteis == 0:
-        return 0.0
-
-    dsr_calculado = (base_valor / dias_uteis) * dias_dsr
-
-    final_value = round(dsr_calculado, 2)
-    print(
-        f"[Cálculo] DSR (49): Base R$ {base_valor:.2f} | Úteis: {dias_uteis} | DSRs: {dias_dsr} | Resultado R$ {final_value}"
-    )
-
-    return final_value
+def calc_adicional_noturno_012(sb, du, dt):
+    return round((sb / du) * dt * 0.20, 2)
 
 
-def calc_dsr_desconto(
-    valor_total_faltas: float, dias_uteis: int, dias_dsr: int
-) -> float:
-    """
-    Calcula o Desconto de DSR com base no valor total das Faltas.
-    """
-    if valor_total_faltas <= 0 or dias_uteis == 0:
-        return 0.0
+def calc_adicional_noturno_050(th, vh):
+    return round(th * vh * 0.20, 2)
 
-    dsr_desconto = (valor_total_faltas / dias_uteis) * dias_dsr
 
-    final_value = round(dsr_desconto, 2)
-    print(
-        f"[Cálculo] DSR Desconto: Base Faltas R$ {valor_total_faltas:.2f}, Calculado R$ {final_value}"
-    )
-
-    return final_value
+def calc_dsr_desconto(vf, du, dd):
+    return round((vf / du) * dd, 2)
 
 
 # ==============================================================================

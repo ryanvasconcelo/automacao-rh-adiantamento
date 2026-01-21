@@ -34,7 +34,7 @@ const HomeWelcome = ({ onNavigate }) => (
   <div className="space-y-8">
     <div className="flex justify-between items-end">
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">Bem-vindo ao GLF</h1>
+        <h1 className="text-3xl font-bold text-slate-900">Bem-vindo ao GFS</h1>
         <p className="text-slate-500 mt-2">Central Unificada de Auditoria e Controle de RH.</p>
       </div>
       <div className="text-right">
