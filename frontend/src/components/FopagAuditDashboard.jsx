@@ -1,8 +1,7 @@
 // frontend/src/components/FopagAuditDashboard.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { Search, AlertTriangle, CheckCircle2, XCircle, FileText, Calculator, Hash, HelpCircle, ThumbsUp } from 'lucide-react';
-// IMPORTANTE: Adicionado CalculationModal aqui
+import { Search, AlertTriangle, CheckCircle2, XCircle, FileText, Calculator, Hash, HelpCircle, ThumbsUp, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
 import { PageTransition, Card, SmartButton, CustomSelect, MonthYearPicker, Badge, Button, SmartLoading, Toggle, Input, CalculationModal } from './ui/Shared';
 import { StatCard } from './ui/StatCard';
 import jsPDF from 'jspdf';
@@ -24,10 +23,7 @@ export default function FopagAuditDashboard() {
     const [filterMode, setFilterMode] = useState('pending');
     const [expandedRows, setExpandedRows] = useState({});
     const [searchTerm, setSearchTerm] = useState('');
-
-    // Estado para o Modal de Memória de Cálculo
     const [selectedMemory, setSelectedMemory] = useState(null);
-
     const [isApproved, setIsApproved] = useState(false);
 
     useEffect(() => {
@@ -43,7 +39,6 @@ export default function FopagAuditDashboard() {
             const res = await axios.post(`${API_URL}/audit/fopag/audit/database`, {
                 empresa_id: company, month: parseInt(month), year: parseInt(year), pension_rule: '2'
             });
-
             if (res.data.divergencias.length === 0 && res.data.metadata.total_funcionarios === 0) {
                 setError("Nenhum dado encontrado para o período.");
             } else {
@@ -58,11 +53,11 @@ export default function FopagAuditDashboard() {
 
     const handleExportPDF = () => {
         const doc = new jsPDF();
-        doc.text(`Divergências FOPAG - ${month}/${year}`, 14, 15);
+        doc.text(`Auditoria FOPAG - ${month}/${year}`, 14, 15);
         const rows = [];
         data.divergencias.filter(d => d.tem_divergencia).forEach(d => {
             d.itens.filter(i => i.status === 'ERRO').forEach(item => {
-                rows.push([d.matricula, d.nome, `${item.evento} (${item.codigo})`, `R$ ${item.diferenca}`]);
+                rows.push([d.matricula, d.nome, `${item.tipo_evento === 'D' ? '(-)' : '(+)'} ${item.evento}`, `Dif: R$ ${item.diferenca}`]);
             });
         });
         autoTable(doc, { head: [['Mat.', 'Nome', 'Evento', 'Diferença']], body: rows, startY: 25 });
@@ -86,8 +81,8 @@ export default function FopagAuditDashboard() {
         data.divergencias.forEach(func => {
             func.itens.forEach(item => {
                 if (item.evento === 'FGTS') fgts += item.real;
-                else if (['INSS', 'IRRF', 'Faltas', 'Vale'].some(k => item.evento.includes(k)) || item.codigo >= '300') descontos += item.real;
-                else proventos += item.real;
+                else if (item.tipo_evento === 'D') descontos += item.real;
+                else if (item.tipo_evento === 'P') proventos += item.real;
             });
         });
         return { proventos, descontos, fgts, liquido: proventos - descontos };
@@ -103,7 +98,7 @@ export default function FopagAuditDashboard() {
                 <Card className="shadow-xl shadow-purple-900/5 border-purple-100 p-8">
                     <div className="space-y-6">
                         <CustomSelect label="Empresa" value={company} onChange={setCompany} options={companiesList.map(c => ({ value: c.id, label: c.name }))} placeholder="Selecione a empresa..." searchable={true} />
-                        <div className="grid grid-cols-1"><MonthYearPicker month={month} year={year} onMonthChange={setMonth} onYearChange={setYear} /></div>
+                        <MonthYearPicker month={month} year={year} onMonthChange={setMonth} onYearChange={setYear} />
                         <SmartButton onClick={handleAudit} isLoading={loading} icon={Calculator} variant="green">Iniciar Auditoria Completa</SmartButton>
                     </div>
                     {loading && <div className="mt-6"><SmartLoading /></div>}
@@ -152,6 +147,7 @@ export default function FopagAuditDashboard() {
                 </Card>
             </div>
 
+            {/* Filtros */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div onClick={() => setFilterMode('pending')} className={`cursor-pointer transition-all ${filterMode === 'pending' ? 'scale-105 ring-2 ring-rose-500' : 'opacity-70'}`}>
                     <StatCard title="Pendências" value={isApproved ? 0 : data.metadata.total_divergencias} icon={XCircle} color={isApproved ? "green" : "red"} subtext="Clique para filtrar" />
@@ -164,12 +160,7 @@ export default function FopagAuditDashboard() {
                 </div>
             </div>
 
-            {/* MODAL DE CÁLCULO */}
-            <CalculationModal
-                isOpen={!!selectedMemory}
-                onClose={() => setSelectedMemory(null)}
-                data={selectedMemory}
-            />
+            <CalculationModal isOpen={!!selectedMemory} onClose={() => setSelectedMemory(null)} data={selectedMemory} />
 
             <Card noPadding>
                 <div className="max-h-[600px] overflow-auto">
@@ -193,8 +184,8 @@ export default function FopagAuditDashboard() {
                                             <tr>
                                                 <th className="px-4 py-3 text-left">Evento</th>
                                                 <th className="px-4 py-3 text-right">Base</th>
-                                                <th className="px-4 py-3 text-right text-slate-600">Real</th>
                                                 <th className="px-4 py-3 text-right text-blue-600">Esperado</th>
+                                                <th className="px-4 py-3 text-right text-slate-600">Real</th>
                                                 <th className="px-4 py-3 text-right">Diferença</th>
                                                 <th className="px-4 py-3 text-center">Memória</th>
                                             </tr>
@@ -203,24 +194,21 @@ export default function FopagAuditDashboard() {
                                             {func.itens.map((item, idx) => (
                                                 <tr key={idx} className={item.status === "ERRO" ? "bg-rose-50/50" : ""}>
                                                     <td className="px-4 py-3">
-                                                        <div className="flex flex-col">
-                                                            {/* TORNAR CLICÁVEL SE TIVER MEMÓRIA */}
+                                                        <div className="flex items-center gap-2 font-medium text-slate-700">
+                                                            {/* ÍCONE DE PROVENTO OU DESCONTO */}
+                                                            {item.tipo_evento === 'D' ? <ArrowDownCircle size={14} className="text-rose-500" /> : <ArrowUpCircle size={14} className="text-emerald-500" />}
+                                                            {/* NOME DO EVENTO CLICÁVEL SE TIVER MEMÓRIA */}
                                                             {item.memoria ? (
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); setSelectedMemory(item.memoria); }}
-                                                                    className="font-medium text-blue-600 hover:text-blue-800 hover:underline text-left transition-colors flex items-center gap-1"
-                                                                >
+                                                                <button onClick={(e) => { e.stopPropagation(); setSelectedMemory(item.memoria); }} className="hover:text-blue-600 hover:underline flex items-center gap-1 transition-colors">
                                                                     {item.evento} <HelpCircle size={12} className="opacity-50" />
                                                                 </button>
-                                                            ) : (
-                                                                <span className="font-medium text-slate-700">{item.evento}</span>
-                                                            )}
-                                                            <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5"><Hash size={10} /> {item.codigo}</div>
+                                                            ) : item.evento}
                                                         </div>
+                                                        <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 ml-6"><Hash size={10} /> {item.codigo}</div>
                                                     </td>
                                                     <td className="px-4 py-3 text-right font-mono text-slate-400">{item.base > 0 ? formatMoney(item.base) : '-'}</td>
-                                                    <td className="px-4 py-3 text-right font-mono text-slate-700">{formatMoney(item.real)}</td>
                                                     <td className="px-4 py-3 text-right font-mono font-bold text-blue-600">{formatMoney(item.esperado)}</td>
+                                                    <td className="px-4 py-3 text-right font-mono text-slate-700">{formatMoney(item.real)}</td>
                                                     <td className={`px-4 py-3 text-right font-mono font-bold ${item.status === 'ERRO' ? 'text-rose-600' : 'text-slate-300'}`}>{item.diferenca !== 0 ? formatMoney(item.diferenca) : '-'}</td>
                                                     <td className="px-4 py-3 text-center"><span className="text-[10px] text-slate-400">{item.formula || '-'}</span></td>
                                                 </tr>

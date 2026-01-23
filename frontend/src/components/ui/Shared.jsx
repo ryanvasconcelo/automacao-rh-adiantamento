@@ -283,7 +283,9 @@ export const Toggle = ({ enabled, onChange, label }) => (
     </div>
 );
 
-// --- MODAL DE DETALHES DE CÁLCULO ---
+// ... (mantenha os outros componentes)
+
+// --- MODAL DE DETALHES DE CÁLCULO ATUALIZADO ---
 export const CalculationModal = ({ isOpen, onClose, data }) => {
     if (!isOpen || !data) return null;
 
@@ -302,7 +304,7 @@ export const CalculationModal = ({ isOpen, onClose, data }) => {
                         <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Memória de Auditoria</p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
-                        <X size={20} className="text-slate-400" />
+                        <ChevronDown size={20} className="text-slate-400 rotate-180" /> {/* Ícone de fechar improvisado ou use X se tiver */}
                     </button>
                 </div>
 
@@ -311,7 +313,7 @@ export const CalculationModal = ({ isOpen, onClose, data }) => {
                     {/* Variáveis */}
                     <div>
                         <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
-                            <Hash size={12} /> Variáveis Utilizadas
+                            Variáveis Utilizadas
                         </h4>
                         <div className="grid grid-cols-2 gap-3">
                             {data.variaveis?.map((v, i) => (
@@ -323,26 +325,25 @@ export const CalculationModal = ({ isOpen, onClose, data }) => {
                         </div>
                     </div>
 
-                    {/* Passos */}
-                    {data.passos && (
-                        <div>
-                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
-                                <Calculator size={12} /> Roteiro de Cálculo
-                            </h4>
-                            <ul className="space-y-2">
-                                {data.passos.map((p, i) => (
-                                    <li key={i} className="text-xs text-slate-600 font-mono bg-blue-50/50 p-2 rounded-lg border border-blue-100 flex gap-2">
-                                        <span className="text-blue-400 font-bold">{i + 1}.</span> {p}
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
+                    {/* Fórmula e Cálculo */}
+                    <div className="space-y-4">
+                        {data.formula_texto && (
+                            <div>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-1">Lógica (Fórmula)</h4>
+                                <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100 text-sm text-blue-800 font-medium">
+                                    {data.formula_texto}
+                                </div>
+                            </div>
+                        )}
 
-                    {/* Resultado */}
-                    <div className="bg-slate-900 text-white p-4 rounded-xl flex justify-between items-center shadow-lg">
-                        <span className="text-xs font-bold uppercase text-slate-400">Resultado Esperado</span>
-                        <span className="text-xl font-mono font-bold text-emerald-400">{data.resultado}</span>
+                        {data.formula_valores && (
+                            <div>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-1">Aplicação dos Valores</h4>
+                                <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 text-sm text-emerald-400 font-mono overflow-x-auto">
+                                    {data.formula_valores}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </motion.div>
