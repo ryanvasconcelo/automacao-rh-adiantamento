@@ -29,3 +29,5 @@ streamlit==1.28.2
 pytest==7.4.3
 
 pydantic-settings>=2.0.0
+
+holidays==0.28.3
