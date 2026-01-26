@@ -213,7 +213,7 @@ const DetailView = ({ data, onBack, name, month, year, isApproved, onToggle }) =
                         <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
                         <input type="text" placeholder="Buscar funcionário..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none w-64" />
                     </div>
-                    <Button variant="success" icon={FileText} onClick={handleExport}>Exportar PDF</Button>
+                    <Button variant="success" icon={FileText} onClick={handleExport}>Exportar Relatório</Button>
                 </div>
             </div>
 

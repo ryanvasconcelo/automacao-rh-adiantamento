@@ -41,45 +41,44 @@ def get_folha_id(empresa_codigo: str, mes: int, ano: int) -> Optional[int]:
 
 def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
     """
-    Busca TODOS os eventos da folha para auditoria completa (Confiar + Verificar).
+    Busca eventos da folha e a carga horária real do funcionário.
     """
     sql = """
-        SELECT 
-            -- Dados do Funcionário
-            EPG.Codigo AS Matricula,
-            EPG.Nome AS Nome,
-            EPG.AdmissaoData AS DataAdmissao,
-            EPG.Categoria AS CodigoVinculo,
-            
-            -- Dados do Evento Financeiro (Real)
-            EFP.EVE_Codigo AS Codigo,
-            EVE.NomeApr AS Descricao,
-            EVE.ProvDesc AS Tipo, -- 1=Prov, 2=Desc, 0=Base
-            EFP.Valor AS Valor,
-            EFP.Referencia AS Referencia
+            SELECT 
+                EPG.Codigo AS Matricula,
+                EPG.Nome AS Nome,
+                EPG.AdmissaoData AS DataAdmissao,
+                EPG.Categoria AS CodigoVinculo,
+                
+                -- CORREÇÃO: Usando a coluna real mapeada 'HorasMes'
+                -- Se for nulo (raro), usa 220 como fallback de segurança
+                ISNULL(SEP.HorasMes, 220) AS CargaHoraria,
+                
+                EFP.EVE_Codigo AS Codigo,
+                EVE.NomeApr AS Descricao,
+                EVE.ProvDesc AS Tipo, 
+                EFP.Valor AS Valor,
+                EFP.Referencia AS Referencia,
+                
+                -- INCIDÊNCIAS REAIS (eSocial)
+                EVE.IndicativoCPMensalFerias,   -- INSS
+                EVE.IndicativoIRRFMensal,       -- IRRF
+                EVE.IndicativoFGTSMensalFerias  -- FGTS
 
-        FROM EFO (NOLOCK)
-        INNER JOIN EPG (NOLOCK) 
-            ON EFO.EMP_Codigo = EPG.EMP_Codigo AND EFO.EPG_Codigo = EPG.Codigo
-        
-        -- Join com Eventos Financeiros (Valores calculados)
-        LEFT JOIN EFP (NOLOCK) 
-            ON EFO.EMP_Codigo = EFP.EMP_Codigo 
-            AND EFO.FOL_Seq = EFP.EFO_FOL_Seq 
-            AND EFO.EPG_Codigo = EFP.EFO_EPG_Codigo
+            FROM EFO (NOLOCK)
+            INNER JOIN EPG (NOLOCK) ON EFO.EMP_Codigo = EPG.EMP_Codigo AND EFO.EPG_Codigo = EPG.Codigo
             
-        -- Join com Cadastro de Eventos (Para pegar nomes e tipos)
-        LEFT JOIN EVE (NOLOCK) 
-            ON EFP.EMP_Codigo = EVE.EMP_Codigo 
-            AND EFP.EVE_CODIGO = EVE.CODIGO
+            -- JOIN com SEP para pegar a carga horária vigente na data da folha
+            LEFT JOIN SEP (NOLOCK) ON EFO.EMP_Codigo = SEP.EMP_Codigo 
+                                  AND EFO.EPG_Codigo = SEP.EPG_Codigo 
+                                  AND EFO.SEP_Data = SEP.Data
 
-        WHERE 
-            EFO.EMP_Codigo = %s
-            AND EFO.FOL_Seq = %s
-            AND EFP.Valor > 0 -- Traz apenas o que tem valor financeiro
+            LEFT JOIN EFP (NOLOCK) ON EFO.EMP_Codigo = EFP.EMP_Codigo AND EFO.FOL_Seq = EFP.EFO_FOL_Seq AND EFO.EPG_Codigo = EFP.EFO_EPG_Codigo
+            LEFT JOIN EVE (NOLOCK) ON EFP.EMP_Codigo = EVE.EMP_Codigo AND EFP.EVE_CODIGO = EVE.CODIGO
             
-        ORDER BY EPG.Nome, EVE.ProvDesc, EFP.EVE_Codigo
-    """
+            WHERE EFO.EMP_Codigo = %s AND EFO.FOL_Seq = %s AND EFP.Valor > 0
+            ORDER BY EPG.Nome, EFP.EVE_Codigo
+        """
 
     try:
         with get_connection() as conn:
@@ -87,7 +86,7 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
             cursor.execute(sql, (empresa_codigo, folha_seq))
             rows = [dict_factory(cursor, row) for row in cursor.fetchall()]
 
-            # --- PROCESSAMENTO E AGRUPAMENTO ---
+            # --- PROCESSAMENTO ---
             funcionarios_map = {}
             CODIGOS_APRENDIZ = ["103", "55", "56", "07"]
 
@@ -111,9 +110,15 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                         "nome": str(row["Nome"]).strip(),
                         "data_admissao": row["DataAdmissao"],
                         "cargo": cargo_detectado,
+                        "carga_horaria": float(
+                            row["CargaHoraria"]
+                        ),  # Agora temos o valor real do banco!
                         "tipo_contrato": vinculo,
-                        "dependentes": 0,  # Poderia buscar na tabela DEP se necessário
-                        "eventos": [],  # Lista plana com tudo (Salário, HE, Bases, Impostos)
+                        "dependentes": 0,
+                        "eventos": [],
+                        "proventos_base": [],  # Compatibilidade
+                        "eventos_variaveis_referencia": [],  # Compatibilidade
+                        "eventos_calculados_fortes": {},  # Compatibilidade
                     }
 
                 # Normalização de dados do evento
@@ -122,17 +127,54 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                 except:
                     codigo_limpo = str(row["Codigo"]).strip()
 
+                valor = float(row["Valor"])
+                referencia = float(row["Referencia"]) if row["Referencia"] else 0.0
+                tipo_evento = row["Tipo"]
+
+                # Resolução de Incidências
+                def check_incidence(val):
+                    try:
+                        return int(val) > 0
+                    except:
+                        return False
+
+                inc_inss = check_incidence(row.get("IndicativoCPMensalFerias"))
+                inc_irrf = check_incidence(row.get("IndicativoIRRFMensal"))
+                inc_fgts = check_incidence(row.get("IndicativoFGTSMensalFerias"))
+
                 evento = {
                     "codigo": codigo_limpo,
                     "descricao": str(row["Descricao"]).strip(),
-                    "tipo": row["Tipo"],  # 1, 2 ou 0
-                    "valor": float(row["Valor"]),
-                    "referencia": (
-                        float(row["Referencia"]) if row["Referencia"] else 0.0
-                    ),
+                    "tipo": tipo_evento,
+                    "valor": valor,
+                    "referencia": referencia,
+                    "incidencias": {
+                        "inss": inc_inss,
+                        "irrf": inc_irrf,
+                        "fgts": inc_fgts,
+                    },
                 }
 
                 funcionarios_map[matricula]["eventos"].append(evento)
+
+                # Preenchimento de estruturas legadas para manter compatibilidade
+                funcionarios_map[matricula]["eventos_calculados_fortes"][
+                    codigo_limpo
+                ] = valor
+
+                if codigo_limpo in ["11", "13", "31", "001"]:
+                    funcionarios_map[matricula]["proventos_base"].append(
+                        {"codigo": codigo_limpo, "valor": valor}
+                    )
+                else:
+                    funcionarios_map[matricula]["eventos_variaveis_referencia"].append(
+                        {
+                            "codigo": codigo_limpo,
+                            "referencia": referencia,
+                            "valor": valor,
+                            "descricao": evento["descricao"],
+                        }
+                    )
 
             return list(funcionarios_map.values())
 
