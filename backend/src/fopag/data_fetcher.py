@@ -22,7 +22,7 @@ def get_folha_id(empresa_codigo: str, mes: int, ano: int) -> Optional[int]:
         FROM FOL (NOLOCK)
         INNER JOIN FPG (NOLOCK) ON FOL.EMP_Codigo = FPG.EMP_Codigo AND FOL.Seq = FPG.FOL_Seq
         WHERE FOL.EMP_Codigo = %s AND FPG.AnoMes = %s
-          AND FOL.Folha = 2 AND FPG.Tipo IN (1, 4) -- Folha Mensal
+          AND FOL.Folha = 2 AND FPG.Tipo IN (1, 4)
         ORDER BY FOL.Seq DESC
     """
     try:
@@ -41,44 +41,61 @@ def get_folha_id(empresa_codigo: str, mes: int, ano: int) -> Optional[int]:
 
 def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
     """
-    Busca eventos da folha e a carga horária real do funcionário.
+    Busca eventos da folha com TODAS as informações necessárias:
+    - Carga horária real
+    - Dependentes para salário família
+    - Referências dinâmicas (insalubridade, faltas)
     """
     sql = """
-            SELECT 
-                EPG.Codigo AS Matricula,
-                EPG.Nome AS Nome,
-                EPG.AdmissaoData AS DataAdmissao,
-                EPG.Categoria AS CodigoVinculo,
-                
-                -- CORREÇÃO: Usando a coluna real mapeada 'HorasMes'
-                -- Se for nulo (raro), usa 220 como fallback de segurança
-                ISNULL(SEP.HorasMes, 220) AS CargaHoraria,
-                
-                EFP.EVE_Codigo AS Codigo,
-                EVE.NomeApr AS Descricao,
-                EVE.ProvDesc AS Tipo, 
-                EFP.Valor AS Valor,
-                EFP.Referencia AS Referencia,
-                
-                -- INCIDÊNCIAS REAIS (eSocial)
-                EVE.IndicativoCPMensalFerias,   -- INSS
-                EVE.IndicativoIRRFMensal,       -- IRRF
-                EVE.IndicativoFGTSMensalFerias  -- FGTS
-
-            FROM EFO (NOLOCK)
-            INNER JOIN EPG (NOLOCK) ON EFO.EMP_Codigo = EPG.EMP_Codigo AND EFO.EPG_Codigo = EPG.Codigo
+        SELECT 
+            EPG.Codigo AS Matricula,
+            EPG.Nome AS Nome,
+            EPG.AdmissaoData AS DataAdmissao,
+            EPG.Categoria AS CodigoVinculo,
             
-            -- JOIN com SEP para pegar a carga horária vigente na data da folha
-            LEFT JOIN SEP (NOLOCK) ON EFO.EMP_Codigo = SEP.EMP_Codigo 
-                                  AND EFO.EPG_Codigo = SEP.EPG_Codigo 
-                                  AND EFO.SEP_Data = SEP.Data
-
-            LEFT JOIN EFP (NOLOCK) ON EFO.EMP_Codigo = EFP.EMP_Codigo AND EFO.FOL_Seq = EFP.EFO_FOL_Seq AND EFO.EPG_Codigo = EFP.EFO_EPG_Codigo
-            LEFT JOIN EVE (NOLOCK) ON EFP.EMP_Codigo = EVE.EMP_Codigo AND EFP.EVE_CODIGO = EVE.CODIGO
+            -- Carga horária real
+            ISNULL(SEP.HorasMes, 220) AS CargaHoraria,
             
-            WHERE EFO.EMP_Codigo = %s AND EFO.FOL_Seq = %s AND EFP.Valor > 0
-            ORDER BY EPG.Nome, EFP.EVE_Codigo
-        """
+            -- ✅ NOVO: Contagem de dependentes para salário família
+            (SELECT COUNT(*) 
+             FROM DEP (NOLOCK) 
+             WHERE DEP.EMP_Codigo = EPG.EMP_Codigo 
+               AND DEP.EPG_Codigo = EPG.Codigo 
+               AND DEP.SalarioFamilia = 'S') AS DependentesSalarioFamilia,
+            
+            -- Eventos
+            EFP.EVE_Codigo AS Codigo,
+            EVE.NomeApr AS Descricao,
+            EVE.ProvDesc AS Tipo, 
+            EFP.Valor AS Valor,
+            EFP.Referencia AS Referencia,
+            
+            -- Incidências (eSocial)
+            EVE.IndicativoCPMensalFerias AS IncideINSS,
+            EVE.IndicativoIRRFMensal AS IncideIRRF,
+            EVE.IndicativoFGTSMensalFerias AS IncideFGTS
+
+        FROM EFO (NOLOCK)
+        INNER JOIN EPG (NOLOCK) ON EFO.EMP_Codigo = EPG.EMP_Codigo 
+                                AND EFO.EPG_Codigo = EPG.Codigo
+        
+        -- Carga horária vigente
+        LEFT JOIN SEP (NOLOCK) ON EFO.EMP_Codigo = SEP.EMP_Codigo 
+                              AND EFO.EPG_Codigo = SEP.EPG_Codigo 
+                              AND EFO.SEP_Data = SEP.Data
+
+        -- Eventos da folha
+        LEFT JOIN EFP (NOLOCK) ON EFO.EMP_Codigo = EFP.EMP_Codigo 
+                              AND EFO.FOL_Seq = EFP.EFO_FOL_Seq 
+                              AND EFO.EPG_Codigo = EFP.EFO_EPG_Codigo
+        LEFT JOIN EVE (NOLOCK) ON EFP.EMP_Codigo = EVE.EMP_Codigo 
+                              AND EFP.EVE_CODIGO = EVE.CODIGO
+        
+        WHERE EFO.EMP_Codigo = %s 
+          AND EFO.FOL_Seq = %s 
+          AND EFP.Valor > 0
+        ORDER BY EPG.Nome, EFP.EVE_Codigo
+    """
 
     try:
         with get_connection() as conn:
@@ -86,7 +103,6 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
             cursor.execute(sql, (empresa_codigo, folha_seq))
             rows = [dict_factory(cursor, row) for row in cursor.fetchall()]
 
-            # --- PROCESSAMENTO ---
             funcionarios_map = {}
             CODIGOS_APRENDIZ = ["103", "55", "56", "07"]
 
@@ -110,18 +126,18 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                         "nome": str(row["Nome"]).strip(),
                         "data_admissao": row["DataAdmissao"],
                         "cargo": cargo_detectado,
-                        "carga_horaria": float(
-                            row["CargaHoraria"]
-                        ),  # Agora temos o valor real do banco!
+                        "carga_horaria": float(row["CargaHoraria"]),
                         "tipo_contrato": vinculo,
-                        "dependentes": 0,
+                        "dependentes": int(
+                            row["DependentesSalarioFamilia"] or 0
+                        ),  # ✅ NOVO
                         "eventos": [],
-                        "proventos_base": [],  # Compatibilidade
-                        "eventos_variaveis_referencia": [],  # Compatibilidade
-                        "eventos_calculados_fortes": {},  # Compatibilidade
+                        "proventos_base": [],
+                        "eventos_variaveis_referencia": [],
+                        "eventos_calculados_fortes": {},
                     }
 
-                # Normalização de dados do evento
+                # Normalização do código
                 try:
                     codigo_limpo = str(int(row["Codigo"]))
                 except:
@@ -131,16 +147,16 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                 referencia = float(row["Referencia"]) if row["Referencia"] else 0.0
                 tipo_evento = row["Tipo"]
 
-                # Resolução de Incidências
+                # Incidências
                 def check_incidence(val):
                     try:
                         return int(val) > 0
                     except:
                         return False
 
-                inc_inss = check_incidence(row.get("IndicativoCPMensalFerias"))
-                inc_irrf = check_incidence(row.get("IndicativoIRRFMensal"))
-                inc_fgts = check_incidence(row.get("IndicativoFGTSMensalFerias"))
+                inc_inss = check_incidence(row.get("IncideINSS"))
+                inc_irrf = check_incidence(row.get("IncideIRRF"))
+                inc_fgts = check_incidence(row.get("IncideFGTS"))
 
                 evento = {
                     "codigo": codigo_limpo,
@@ -156,8 +172,6 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                 }
 
                 funcionarios_map[matricula]["eventos"].append(evento)
-
-                # Preenchimento de estruturas legadas para manter compatibilidade
                 funcionarios_map[matricula]["eventos_calculados_fortes"][
                     codigo_limpo
                 ] = valor

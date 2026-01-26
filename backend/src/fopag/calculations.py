@@ -23,11 +23,11 @@ INSS_TABLE_2026 = [
 # IRRF 2026 Mensal OFICIAL - Tabela + Redutor (para base >R$5k)
 IRRF_DEDUCAO_DEPENDENTE_2026 = 189.59  # ✓ Correto
 IRRF_TABLE_2026 = [
-    (2428.80, 0.0, 0.0),  # Isento até R$ 2.428,80
-    (2826.65, 0.075, 182.16),  # 7,5% até R$ 2.826,65
-    (3751.05, 0.15, 394.16),  # 15% até R$ 3.751,05
-    (4664.68, 0.225, 675.49),  # 22,5% até R$ 4.664,68
-    (float("inf"), 0.275, 908.73),  # 27,5% acima
+    (2428.80, 0.0, 0.0),  # Isento
+    (2826.65, 0.075, 182.16),  # 7,5%
+    (3751.05, 0.15, 394.16),  # 15%
+    (4664.68, 0.225, 675.49),  # 22,5%
+    (float("inf"), 0.275, 908.73),  # ← DEDUÇÃO CORRETA FORTES
 ]
 
 # Salário Família 2026
@@ -118,37 +118,22 @@ def get_dias_uteis_dsr(ano: int, mes: int, data_admissao: date = None) -> dict:
 
 
 def calc_inss(salario_bruto: float) -> float:
-    """
-    Calcula INSS progressivo 2026 com arredondamento por faixa.
-
-    IMPORTANTE: O sistema usa arredondamento a cada faixa para
-    chegar no valor exato da folha (R$ 803,46 ao invés de R$ 811,56).
-    """
-    # Se ultrapassar o teto da última faixa, retorna o teto
     if salario_bruto > INSS_TABLE_2026[-1][0]:
         return INSS_TETO_2026
 
     inss_total = 0.0
     base_anterior = 0.0
 
-    # Cálculo progressivo com arredondamento intermediário
     for limite, aliquota, _ in INSS_TABLE_2026:
         if salario_bruto > base_anterior:
-            # Base tributável nesta faixa
             base_faixa = min(salario_bruto, limite) - base_anterior
-
-            # Calcula INSS desta faixa E arredonda (trunca)
             inss_faixa = base_faixa * aliquota
-            inss_faixa_arredondado = truncate(inss_faixa, 2)
-
-            inss_total += inss_faixa_arredondado
+            inss_total += round(inss_faixa, 2)  # ← ROUND por faixa
             base_anterior = limite
-
-            # Se a base está dentro desta faixa, para o loop
             if salario_bruto <= limite:
                 break
 
-    return truncate(inss_total, 2)
+    return round(inss_total, 2)  # ← FINAL round
 
 
 # ============================================================================
@@ -157,15 +142,11 @@ def calc_inss(salario_bruto: float) -> float:
 
 
 def calc_irrf_detalhado(rendimento_bruto: float, inss: float, deps: int) -> dict:
-    """
-    Calcula IRRF 2026 CORRETAMENTE com redutor oficial.
-    Valida: base R$6.353,43 → IRRF R$591,79 (folha VITOR DANTAS)
-    """
-    # Dedução por dependentes
+    """IRRF 2026 FORTES MANAUS - COM REDUTOR OFICIAL"""
     deducao_deps = deps * IRRF_DEDUCAO_DEPENDENTE_2026
     base_liq = rendimento_bruto - inss - deducao_deps
 
-    # Encontrar faixa da tabela IRRF 2026
+    # Faixa IRRF
     aliquota_usada = 0.0
     deducao_faixa = 0.0
     for lim, aliq, ded in IRRF_TABLE_2026:
@@ -174,49 +155,29 @@ def calc_irrf_detalhado(rendimento_bruto: float, inss: float, deps: int) -> dict
             deducao_faixa = ded
             break
     if base_liq > IRRF_TABLE_2026[-2][0]:
-        _, aliquota_usada, deducao_faixa = IRRF_TABLE_2026[-1]
+        aliquota_usada, deducao_faixa = 0.275, 908.73
 
-    # Imposto PARCIAL (sem redutor)
+    # IRRF PARCIAL (SEM redutor)
     parcial = max(0.0, (base_liq * aliquota_usada) - deducao_faixa)
 
-    # REDUTOR OFICIAL 2026 (explica diferença R$812,74 → R$591,79)
     reducao = 0.0
-    formula_reducao = "0.00"
     if rendimento_bruto <= 5000:
         reducao = min(parcial, 312.89)
-        formula_reducao = f"Min({parcial:.2f}, 312.89)"
     elif rendimento_bruto <= 7350:
-        fator = 978.62 - (0.133145 * rendimento_bruto)
-        reducao = max(0.0, fator)
-        formula_reducao = f"978.62 - (0.133145*{rendimento_bruto:.2f})={reducao:.2f}"
-
-    # IRRF FINAL (com redutor)
-    irrf_final = max(0.0, parcial - reducao)  # ← VARIÁVEL DEFINIDA AQUI
-
-    memoria = {
-        "tipo": "IRRF 2026 (Com Redutor)",
-        "variaveis": [
-            {"nome": "Rendimento Tributável", "valor": f"R$ {rendimento_bruto:,.2f}"},
-            {"nome": "Dedução INSS", "valor": f"R$ {inss:,.2f}"},
-            {"nome": "Dedução Dependentes", "valor": f"R$ {deducao_deps:,.2f}"},
-            {"nome": "Base Líquida", "valor": f"R$ {base_liq:,.2f}"},
-            {"nome": "Alíquota", "valor": f"{aliquota_usada*100}%"},
-            {"nome": "Dedução Faixa", "valor": f"R$ {deducao_faixa:,.2f}"},
-            {"nome": "Imposto Parcial", "valor": f"R$ {parcial:.2f}"},
-            {"nome": "Redutor", "valor": f"R$ {reducao:.2f}"},
-        ],
-        "passos": [
-            f"Base = {rendimento_bruto:.2f} - {inss:.2f} - {deducao_deps:.2f} = {base_liq:.2f}",
-            f"Parcial = ({base_liq:.2f}*{aliquota_usada:.0%})-{deducao_faixa:.2f} = {parcial:.2f}",
-            f"Redutor = {formula_reducao}",
-            f"Final = {parcial:.2f} - {reducao:.2f} = {irrf_final:.2f}",
-        ],
-        "resultado": f"R$ {irrf_final:.2f}",
-    }
+        reducao = max(
+            0.0, 978.62 - (0.133145 * rendimento_bruto)
+        )  # ✓ Exato do demonstrativo
+    irrf_final = max(0.0, parcial - reducao)
 
     return {
         "valor": round(irrf_final, 2),
-        "memoria": memoria,
+        "memoria": {
+            "tipo": "IRRF Fortes 2026",
+            "base": f"R${base_liq:.2f}",
+            "parcial": f"R${parcial:.2f}",
+            "reducao": f"R${reducao:.2f}",
+            "final": f"R${irrf_final:.2f}",
+        },
     }
 
 
@@ -241,13 +202,9 @@ def calc_fgts(base: float, is_aprendiz: bool = False) -> float:
 def calc_he_generica(
     salario_base_he: float, horas: float, percentual: float, divisor: float = 220.0
 ) -> float:
-    """
-    Calcula Hora Extra com base composta (Salário + Adicionais).
-    Exemplo: HE 50% = hora normal × 1.5
-    """
     salario_hora = salario_base_he / divisor
     fator = 1 + (percentual / 100.0)
-    return round(salario_hora * fator * horas, 2)
+    return round((salario_base_he / divisor) * (1 + percentual / 100) * horas, 2)
 
 
 def calc_adicional_noturno(
@@ -307,3 +264,8 @@ def calc_vale_transporte(salario: float, percentual: float = 0.06) -> float:
     Calcula desconto de vale transporte (6% do salário).
     """
     return round(salario * percentual, 2)
+
+
+def calc_falta(salario_base, qtd_dias):
+    # Forçamos ambos para float para garantir a compatibilidade na conta
+    return round((float(salario_base) / 30) * float(qtd_dias), 2)
