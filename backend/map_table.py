@@ -22,8 +22,19 @@ def fmt(val):
     return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def run_investigation():
-    print("\n🕵️‍♂️ INVESTIGAÇÃO DE BASES E INCIDÊNCIAS (FOLHA 2 - MENSAL)")
+def run_investigation(mes=None, ano=None):
+    """
+    Investiga bases e incidências.
+    Se mes/ano não forem informados, usa o mês/ano ATUAL.
+    """
+    from datetime import datetime
+    
+    if mes is None or ano is None:
+        hoje = datetime.now()
+        mes = hoje.month
+        ano = hoje.year
+    
+    print(f"\n🕵️‍♂️ INVESTIGAÇÃO DE BASES E INCIDÊNCIAS (FOLHA 2 - MENSAL {mes}/{ano})")
     print("=" * 100)
 
     # ALVOS:
@@ -35,7 +46,7 @@ def run_investigation():
 
     placeholders = ",".join(["%s"] * len(alvos))
 
-    # OBS: Forçamos a busca na Folha Mensal (Folha = 2 no Fortes)
+    # OBS: Busca a FOLHA MENSAL mais recente (Folha = 2) do mês/ano solicitado
     sql = f"""
         SELECT 
             EPG.Codigo AS Mat,
@@ -51,8 +62,8 @@ def run_investigation():
         INNER JOIN EFP (NOLOCK) ON EFO.EMP_Codigo = EFP.EMP_Codigo AND EFO.FOL_Seq = EFP.EFO_FOL_Seq AND EFO.EPG_Codigo = EFP.EFO_EPG_Codigo
         INNER JOIN EVE (NOLOCK) ON EFP.EMP_Codigo = EVE.EMP_Codigo AND EFP.EVE_CODIGO = EVE.CODIGO
         WHERE EFO.EMP_Codigo = '9189'
-          -- Pega a última folha Tipo 2 (Mensal)
-          AND EFO.FOL_Seq = (SELECT TOP 1 Seq FROM FOL WHERE EMP_Codigo = '9189' AND Folha = 2 ORDER BY Seq DESC)
+          -- Pega a FOLHA 2 mais recente (maior Seq) do mês/ano ESPECIFICADO
+          AND EFO.FOL_Seq = (SELECT MAX(Seq) FROM FOL WHERE EMP_Codigo = '9189' AND Folha = 2 AND YEAR(DtCalculo) = %s AND MONTH(DtCalculo) = %s)
           AND EPG.Codigo IN ({placeholders})
         ORDER BY EPG.Nome, EVE.ProvDesc, EFP.EVE_Codigo
     """
@@ -60,7 +71,7 @@ def run_investigation():
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(sql, alvos)
+            cursor.execute(sql, (ano, mes) + tuple(alvos))
             rows = cursor.fetchall()
 
             curr_mat = None
@@ -148,4 +159,9 @@ def run_investigation():
 
 
 if __name__ == "__main__":
-    run_investigation()
+    import sys
+    
+    mes = int(sys.argv[1]) if len(sys.argv) > 1 else None
+    ano = int(sys.argv[2]) if len(sys.argv) > 2 else None
+    
+    run_investigation(mes=mes, ano=ano)
