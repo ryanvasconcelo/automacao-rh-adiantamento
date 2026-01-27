@@ -41,10 +41,14 @@ def get_folha_id(empresa_codigo: str, mes: int, ano: int) -> Optional[int]:
 
 def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
     """
-    Busca eventos da folha com TODAS as informações necessárias:
-    - Carga horária real
-    - Dependentes para salário família
-    - Referências dinâmicas (insalubridade, faltas)
+    Busca TODOS os eventos da folha com informações completas.
+
+    ✅ CORREÇÃO: Agora busca TODOS os eventos, incluindo:
+    - Gratificações
+    - Pensões
+    - Adiantamentos
+    - Etapas
+    - Tudo que estiver na folha
     """
     sql = """
         SELECT 
@@ -56,7 +60,14 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
             -- Carga horária real
             ISNULL(SEP.HorasMes, 220) AS CargaHoraria,
             
-            -- ✅ NOVO: Contagem de dependentes para salário família
+            -- ✅ CORREÇÃO: Busca TODOS os dependentes (filtraremos no código se necessário)
+            -- Caso a coluna IRRF também não exista, contamos todos
+            (SELECT COUNT(*) 
+             FROM DEP (NOLOCK) 
+             WHERE DEP.EMP_Codigo = EPG.EMP_Codigo 
+               AND DEP.EPG_Codigo = EPG.Codigo) AS DependentesIRRF,
+            
+            -- Dependentes para salário família (coluna comprovada que existe)
             (SELECT COUNT(*) 
              FROM DEP (NOLOCK) 
              WHERE DEP.EMP_Codigo = EPG.EMP_Codigo 
@@ -84,7 +95,7 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                               AND EFO.EPG_Codigo = SEP.EPG_Codigo 
                               AND EFO.SEP_Data = SEP.Data
 
-        -- Eventos da folha
+        -- ✅ EVENTOS (SEM FILTRO DE VALOR > 0, PARA PEGAR TUDO)
         LEFT JOIN EFP (NOLOCK) ON EFO.EMP_Codigo = EFP.EMP_Codigo 
                               AND EFO.FOL_Seq = EFP.EFO_FOL_Seq 
                               AND EFO.EPG_Codigo = EFP.EFO_EPG_Codigo
@@ -92,8 +103,9 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                               AND EFP.EVE_CODIGO = EVE.CODIGO
         
         WHERE EFO.EMP_Codigo = %s 
-          AND EFO.FOL_Seq = %s 
-          AND EFP.Valor > 0
+          AND EFO.FOL_Seq = %s
+          -- ✅ REMOVIDO FILTRO: AND EFP.Valor > 0
+          -- Agora pega TODOS os eventos, mesmo os com valor 0
         ORDER BY EPG.Nome, EFP.EVE_Codigo
     """
 
@@ -128,14 +140,20 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                         "cargo": cargo_detectado,
                         "carga_horaria": float(row["CargaHoraria"]),
                         "tipo_contrato": vinculo,
-                        "dependentes": int(
+                        # ✅ CORREÇÃO: Dependentes IRRF (não Salário Família)
+                        "dependentes": int(row["DependentesIRRF"] or 0),
+                        "dependentes_salario_familia": int(
                             row["DependentesSalarioFamilia"] or 0
-                        ),  # ✅ NOVO
+                        ),
                         "eventos": [],
                         "proventos_base": [],
                         "eventos_variaveis_referencia": [],
                         "eventos_calculados_fortes": {},
                     }
+
+                # Se não houver evento, pula
+                if not row.get("Codigo"):
+                    continue
 
                 # Normalização do código
                 try:
@@ -143,7 +161,7 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                 except:
                     codigo_limpo = str(row["Codigo"]).strip()
 
-                valor = float(row["Valor"])
+                valor = float(row["Valor"]) if row["Valor"] else 0.0
                 referencia = float(row["Referencia"]) if row["Referencia"] else 0.0
                 tipo_evento = row["Tipo"]
 

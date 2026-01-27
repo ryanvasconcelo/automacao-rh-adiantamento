@@ -1,4 +1,4 @@
-# backend/src/fopag/fopag_auditor.py
+# backend/src/fopag/fopag_auditor.py - VERSÃO CORRIGIDA COMPLETA
 
 import re
 from datetime import datetime
@@ -47,23 +47,6 @@ CODIGOS_IGNORAR_AUDITORIA = [
     "949",
 ]
 
-CODIGOS_PENSAO = ["340", "911", "912", "800"]
-CODIGOS_NAO_SOMAM_PROVENTOS = [
-    955,
-    94,
-    950,
-    967,
-    953,
-    969,
-    971,
-    300,
-    127,
-    319,
-    301,
-    302,
-    340,
-]
-
 
 def run_fopag_audit(
     company_code: str,
@@ -75,12 +58,11 @@ def run_fopag_audit(
     """
     ✅ AUDITOR 2026 - VERSÃO FINAL CORRIGIDA
 
-    Correções implementadas:
-    1. Insalubridade: Lê grau real (20% ou 40%) da referência
-    2. Falta: Diferencia dias vs horas por análise semântica + numérica
-    3. Salário Família: Usa dependentes reais do banco
-    4. Hora Extra: Arredondamento intermediário (truncate)
-    5. DSR: Tolerância 5% implementada
+    CORREÇÕES:
+    1. ✅ Tratamento correto Decimal vs float
+    2. ✅ Incidências dinâmicas do banco
+    3. ✅ IRRF 2026 método Fortes
+    4. ✅ Debug de eventos incluído
     """
     print(f"[Auditor 2026 FINAL] Processando {company_code} - {mes}/{ano}...")
 
@@ -94,7 +76,7 @@ def run_fopag_audit(
     for funcionario in employee_payroll_data:
         matricula = funcionario.get("matricula", "N/A")
         nome = funcionario.get("nome", "N/A")
-        dependentes = funcionario.get("dependentes", 0)  # ✅ Vem do banco agora
+        dependentes = funcionario.get("dependentes", 0)
 
         # Data de admissão
         data_admissao = None
@@ -126,6 +108,11 @@ def run_fopag_audit(
                 "itens": [],
                 "tem_divergencia": False,
                 "totais": {"proventos": 0.0, "descontos": 0.0, "liquido": 0.0},
+                "debug": {
+                    "eventos_irrf": [],
+                    "eventos_nao_irrf": [],
+                    "total_eventos": 0,
+                },
             }
 
         def registrar(
@@ -148,7 +135,7 @@ def run_fopag_audit(
             is_ok = abs(diff) <= Decimal("0.10")
 
             # Tolerância especial para DSR (5%)
-            if ("DSR" in evt.upper() or "DESCANSO" in evt.upper()) and dec_esp > 0:
+            if ("DSR" in evt.upper() or "DESCANSO" in evt.upper()) and dec_esp > D("0"):
                 if (abs(diff) / dec_esp) < Decimal("0.05"):
                     is_ok = True
 
@@ -173,22 +160,23 @@ def run_fopag_audit(
             )
 
         # Variáveis de acumulação
-        salario_base = D(0)
-        base_he = D(0)
+        salario_base = D("0")
+        base_he = D("0")
 
-        nossa_base_inss = D(0)
-        nossa_base_irrf = D(0)
-        nossa_base_fgts = D(0)
+        nossa_base_inss = D("0")
+        nossa_base_irrf = D("0")
+        nossa_base_fgts = D("0")
 
-        fortes_base_inss = D(0)
-        fortes_base_irrf = D(0)
-        fortes_base_fgts = D(0)
+        fortes_base_inss = D("0")
+        fortes_base_irrf = D("0")
+        fortes_base_fgts = D("0")
 
-        total_variaveis_dsr = D(0)
-        total_proventos = D(0)
-        total_descontos = D(0)
+        total_variaveis_dsr = D("0")
+        total_proventos = D("0")
+        total_descontos = D("0")
 
         lista_eventos = funcionario.get("eventos", [])
+        auditoria_agrupada[matricula]["debug"]["total_eventos"] = len(lista_eventos)
 
         # Separação de eventos
         eventos_fixos = []
@@ -197,9 +185,7 @@ def run_fopag_audit(
         eventos_dsr = []
         eventos_outros = []
 
-        # ===================================================================
-        # 1. PRÉ-PROCESSAMENTO
-        # ===================================================================
+        # PRÉ-PROCESSAMENTO
         for ev in lista_eventos:
             cod = ev["codigo"]
             val = D(ev["valor"])
@@ -220,6 +206,25 @@ def run_fopag_audit(
             if cod in CODIGOS_IGNORAR_AUDITORIA or cod in ["310", "311", "605"]:
                 continue
 
+            # DEBUG: Registra eventos IRRF
+            incidencias = ev.get("incidencias", {})
+            if incidencias.get("irrf") and ev["tipo"] == 1:
+                auditoria_agrupada[matricula]["debug"]["eventos_irrf"].append(
+                    {
+                        "codigo": cod,
+                        "descricao": ev["descricao"],
+                        "valor": float(val),
+                    }
+                )
+            elif ev["tipo"] == 1:
+                auditoria_agrupada[matricula]["debug"]["eventos_nao_irrf"].append(
+                    {
+                        "codigo": cod,
+                        "descricao": ev["descricao"],
+                        "valor": float(val),
+                    }
+                )
+
             # Classificação
             if cod == company_rule.cod_salario_base or cod in ["11", "001", "1"]:
                 eventos_fixos.append(ev)
@@ -237,201 +242,143 @@ def run_fopag_audit(
             else:
                 eventos_outros.append(ev)
 
-        # ===================================================================
-        # 2. EVENTOS FIXOS (Salário Base)
-        # ===================================================================
+        # SALÁRIO BASE
         for ev in eventos_fixos:
-            val = D(ev["valor"])
-            salario_base = val
-            base_he += val
+            cod, val_real = ev["codigo"], D(ev["valor"])
+            salario_base = val_real
+            base_he = val_real
 
-            total_proventos += val
-            if ev["incidencias"]["inss"]:
-                nossa_base_inss += val
-            if ev["incidencias"]["irrf"]:
-                nossa_base_irrf += val
-            if ev["incidencias"]["fgts"]:
-                nossa_base_fgts += val
+            total_proventos += val_real
+            if ev.get("incidencias", {}).get("inss"):
+                nossa_base_inss += val_real
+            if ev.get("incidencias", {}).get("irrf"):
+                nossa_base_irrf += val_real
+            if ev.get("incidencias", {}).get("fgts"):
+                nossa_base_fgts += val_real
 
             registrar(
-                ev["descricao"],
-                val,
-                val,
-                ev["codigo"],
-                formula="Fixo Contratual",
+                "Salário Base",
+                val_real,
+                val_real,
+                cod,
+                formula="Salário Contratual",
                 tipo="P",
             )
 
-        # ===================================================================
-        # 3. ADICIONAIS (Periculosidade, Insalubridade, Gratificações)
-        # ===================================================================
+        # ADICIONAIS
         for ev in eventos_adicionais:
             cod, val_real = ev["codigo"], D(ev["valor"])
             nome = ev["descricao"]
-            nome_upper = nome.upper()
             ref = D(ev["referencia"])
+            nome_upper = nome.upper()
+
             v_esp = val_real
             formula = "Leitura Direta"
 
-            # Periculosidade
             if "PERICULOSIDADE" in nome_upper:
                 v_esp = D(calculations.calc_periculosidade(float(salario_base)))
+                base_he += v_esp
                 formula = "30% Salário Base"
 
-            # ✅ CORREÇÃO 1: INSALUBRIDADE - Lê grau real da referência
             elif "INSALUBRIDADE" in nome_upper:
-                # Se referência indica o grau (10, 20, 40), usa ela
-                if ref in [10, 20, 40]:
-                    grau = float(ref) / 100.0
-                    v_esp = D(
-                        calculations.calc_insalubridade(
-                            calculations.SALARIO_MINIMO_2026, grau
-                        )
-                    )
-                    formula = f"{int(ref)}% Salário Mínimo"
-                else:
-                    # Padrão: 20%
-                    v_esp = D(
-                        calculations.calc_insalubridade(
-                            calculations.SALARIO_MINIMO_2026, 0.20
-                        )
-                    )
-                    formula = "20% Salário Mínimo (Padrão)"
+                grau = 0.20
+                if ref > D("0"):
+                    if abs(ref - D("0.10")) < D("0.01"):
+                        grau = 0.10
+                    elif abs(ref - D("0.20")) < D("0.01"):
+                        grau = 0.20
+                    elif abs(ref - D("0.40")) < D("0.01"):
+                        grau = 0.40
 
-            # Adiciona à base de HE
-            if ev["tipo"] == 1:
-                base_he += v_esp
+                v_esp = D(calculations.calc_insalubridade(grau=grau))
+                formula = f"Grau {grau*100:.0f}% × SM"
 
-            # Acumula nas bases
-            if ev["tipo"] == 1:
-                total_proventos += v_esp
-                if ev["incidencias"]["inss"]:
-                    nossa_base_inss += v_esp
-                if ev["incidencias"]["irrf"]:
-                    nossa_base_irrf += v_esp
-                if ev["incidencias"]["fgts"]:
-                    nossa_base_fgts += v_esp
-            else:
-                total_descontos += v_esp
-                if ev["incidencias"]["inss"]:
-                    nossa_base_inss -= v_esp
-                if ev["incidencias"]["irrf"]:
-                    nossa_base_irrf -= v_esp
-                if ev["incidencias"]["fgts"]:
-                    nossa_base_fgts -= v_esp
+            elif "ANUE" in nome_upper or "GRATIFICA" in nome_upper:
+                v_esp = val_real
+                formula = "Valor Fixo"
 
-            registrar(
-                nome,
-                v_esp,
-                val_real,
-                cod,
-                formula=formula,
-                tipo="P" if ev["tipo"] == 1 else "D",
-            )
+            total_proventos += v_esp
+            if ev.get("incidencias", {}).get("inss"):
+                nossa_base_inss += v_esp
+            if ev.get("incidencias", {}).get("irrf"):
+                nossa_base_irrf += v_esp
+            if ev.get("incidencias", {}).get("fgts"):
+                nossa_base_fgts += v_esp
 
-        # ===================================================================
-        # 4. EVENTOS DE TEMPO (HE, Adicional Noturno, Faltas)
-        # ===================================================================
+            registrar(nome, v_esp, val_real, cod, formula=formula, tipo="P")
+
+        # EVENTOS DE TEMPO
         for ev in eventos_tempo:
             cod, val_real = ev["codigo"], D(ev["valor"])
             nome = ev["descricao"]
             ref = D(ev["referencia"])
             nome_upper = nome.upper()
+
             v_esp = val_real
             formula = "Leitura Direta"
-            memoria = None
 
-            # HORA EXTRA
-            if "HORA" in nome_upper and ("EXTRA" in nome_upper or "HE" in nome_upper):
-                match = re.search(r"(\d+)%", nome_upper)
-                pct = int(match.group(1)) if match else 50
+            if "HORA" in nome_upper and "EXTRA" in nome_upper:
+                qtd_horas = calculations.time_to_decimal(float(ref))
+                percentual = 50
 
-                if ref > 0:
-                    h_dec = D(calculations.time_to_decimal(float(ref)))
-                    v_esp = D(
-                        calculations.calc_he_generica(
-                            float(base_he), float(h_dec), pct, carga_horaria
-                        )
+                if "100" in nome_upper or cod == "61":
+                    percentual = 100
+                elif "60" in nome_upper or cod == "62":
+                    percentual = 60
+                elif "70" in nome_upper or cod == "64":
+                    percentual = 70
+
+                v_esp = D(
+                    calculations.calc_he_generica(
+                        float(base_he), qtd_horas, percentual, carga_horaria
                     )
-                    formula = f"HE {pct}%"
-                    total_variaveis_dsr += v_esp
+                )
+                formula = f"HE {percentual}% - {qtd_horas}h"
+                total_variaveis_dsr += v_esp
 
-                    memoria = {
-                        "tipo": f"Hora Extra {pct}%",
-                        "variaveis": [
-                            {"nome": "Base HE", "valor": f"R$ {base_he:,.2f}"},
-                            {"nome": "Divisor", "valor": carga_horaria},
-                            {"nome": "Horas", "valor": f"{h_dec:.2f}"},
-                        ],
-                        "passos": [
-                            f"({float(base_he):.2f}/{carga_horaria}) * {1 + pct/100} * {float(h_dec):.2f}"
-                        ],
-                        "resultado": f"R$ {float(v_esp):.2f}",
-                    }
-
-            # ADICIONAL NOTURNO
             elif "NOTURNO" in nome_upper:
-                if ref > 0:
-                    h_dec = D(calculations.time_to_decimal(float(ref)))
+                qtd_horas = calculations.time_to_decimal(float(ref))
+                v_esp = D(
+                    calculations.calc_adicional_noturno(
+                        float(salario_base), qtd_horas, carga_horaria
+                    )
+                )
+                formula = f"20% × {qtd_horas}h"
+                total_variaveis_dsr += v_esp
 
-                    # Se referência >50h, assume que é valor pré-calculado
-                    if h_dec > 50:
-                        v_esp = val_real
-                        formula = "Leitura Direta (Ref>50h)"
-                    else:
-                        v_esp = D(
-                            calculations.calc_adicional_noturno(
-                                float(salario_base), float(h_dec), carga_horaria
-                            )
-                        )
-                        formula = "Adic. Noturno 20% (S/ Salário)"
-                        total_variaveis_dsr += v_esp
+            elif "FALTA" in nome_upper or "ATRASO" in nome_upper:
+                qtd = float(ref) if ref > D("0") else 1.0
+                if ref > D("30"):
+                    qtd = float(ref) / (carga_horaria / 30)
 
-            # ✅ CORREÇÃO 2: FALTA - Diferencia Dias vs Horas
-            if "FALTA" in nome_upper:
-                qtd = ref  # ref é dias ou horas?
-                if ref > 30:  # Se >30, provavelmente horas → converte pra dias
-                    qtd = ref / (carga_horaria / 30)  # Ajuste dinâmico
-                v_esp = D(calculations.calc_falta(float(salario_base), qtd))
-
-                # ESTRATÉGIA EM 3 NÍVEIS:
-                # 1. Se descrição menciona "HORA" ou "H", é em horas
                 if "HORA" in nome_upper or " H " in nome_upper:
-                    v_esp = D(
-                        round((float(salario_base) / carga_horaria) * float(qtd), 2)
-                    )
+                    v_esp = D(round((float(salario_base) / carga_horaria) * qtd, 2))
                     formula = "Desconto Horas"
-                # 2. Se quantidade >= 5, estatisticamente são dias
                 elif qtd >= 5:
-                    v_esp = D(round((float(salario_base) / 30) * float(qtd), 2))
+                    v_esp = D(round((float(salario_base) / 30) * qtd, 2))
                     formula = "Desconto Dias (qtd>=5)"
-                # 3. Se quantidade é inteira (1, 2, 3, 4), assume dias
                 elif qtd == int(qtd) and qtd <= 4:
-                    v_esp = D(round((float(salario_base) / 30) * float(qtd), 2))
+                    v_esp = D(round((float(salario_base) / 30) * qtd, 2))
                     formula = "Desconto Dias (inteiro)"
-                # 4. Caso contrário (ex: 1.5), são horas
                 else:
-                    v_esp = D(
-                        round((float(salario_base) / carga_horaria) * float(qtd), 2)
-                    )
+                    v_esp = D(round((float(salario_base) / carga_horaria) * qtd, 2))
                     formula = "Desconto Horas (decimal)"
 
-            # Acumula nas bases
             if ev["tipo"] == 1:
                 total_proventos += v_esp
-                if ev["incidencias"]["inss"]:
+                if ev.get("incidencias", {}).get("inss"):
                     nossa_base_inss += v_esp
-                if ev["incidencias"]["irrf"]:
+                if ev.get("incidencias", {}).get("irrf"):
                     nossa_base_irrf += v_esp
-                if ev["incidencias"]["fgts"]:
+                if ev.get("incidencias", {}).get("fgts"):
                     nossa_base_fgts += v_esp
             else:
                 total_descontos += v_esp
-                if ev["incidencias"]["inss"]:
+                if ev.get("incidencias", {}).get("inss"):
                     nossa_base_inss -= v_esp
-                if ev["incidencias"]["irrf"]:
+                if ev.get("incidencias", {}).get("irrf"):
                     nossa_base_irrf -= v_esp
-                if ev["incidencias"]["fgts"]:
+                if ev.get("incidencias", {}).get("fgts"):
                     nossa_base_fgts -= v_esp
 
             registrar(
@@ -441,13 +388,10 @@ def run_fopag_audit(
                 cod,
                 formula=formula,
                 base=float(ref),
-                memoria=memoria,
                 tipo="P" if ev["tipo"] == 1 else "D",
             )
 
-        # ===================================================================
-        # 5. DSR (Descanso Semanal Remunerado)
-        # ===================================================================
+        # DSR
         for ev in eventos_dsr:
             cod, val_real = ev["codigo"], D(ev["valor"])
             nome = ev["descricao"]
@@ -455,16 +399,13 @@ def run_fopag_audit(
             formula = "DSR (Base desconhecida)"
             memoria = None
 
-            # Tenta calcular DSR
-            if total_variaveis_dsr > 0 and dias_uteis > 0:
+            if total_variaveis_dsr > D("0") and dias_uteis > 0:
                 v_dsr = D(
                     calculations.calc_dsr(
                         float(total_variaveis_dsr), dias_uteis, dias_dsr
                     )
                 )
-
-                # Se diferença < 5%, aceita
-                if abs(v_dsr - val_real) < 5:
+                if abs(v_dsr - val_real) < D("5"):
                     v_esp = v_dsr
                     formula = "DSR Calculado"
                     memoria = {
@@ -472,32 +413,26 @@ def run_fopag_audit(
                         "variaveis": [
                             {
                                 "nome": "Variáveis",
-                                "valor": f"R$ {total_variaveis_dsr:.2f}",
+                                "valor": f"R$ {float(total_variaveis_dsr):.2f}",
                             },
                             {"nome": "Úteis/DSR", "valor": f"{dias_uteis}/{dias_dsr}"},
-                        ],
-                        "passos": [
-                            f"({float(total_variaveis_dsr):.2f}/{dias_uteis}) * {dias_dsr}"
                         ],
                         "resultado": f"R$ {float(v_esp):.2f}",
                     }
 
-            # DSR sempre é provento
             total_proventos += v_esp
-            if ev["incidencias"]["inss"]:
+            if ev.get("incidencias", {}).get("inss"):
                 nossa_base_inss += v_esp
-            if ev["incidencias"]["irrf"]:
+            if ev.get("incidencias", {}).get("irrf"):
                 nossa_base_irrf += v_esp
-            if ev["incidencias"]["fgts"]:
+            if ev.get("incidencias", {}).get("fgts"):
                 nossa_base_fgts += v_esp
 
             registrar(
                 nome, v_esp, val_real, cod, formula=formula, memoria=memoria, tipo="P"
             )
 
-        # ===================================================================
-        # 6. OUTROS EVENTOS (Vale Transporte, Salário Família, etc)
-        # ===================================================================
+        # OUTROS
         for ev in eventos_outros:
             cod, val_real = ev["codigo"], D(ev["valor"])
             nome = ev["descricao"]
@@ -505,7 +440,6 @@ def run_fopag_audit(
             v_esp = val_real
             formula = "Leitura Direta"
 
-            # Vale Transporte
             if (
                 "TRANSPORTE" in nome.upper()
                 and "VALE" in nome.upper()
@@ -514,10 +448,8 @@ def run_fopag_audit(
                 v_esp = D(calculations.calc_vale_transporte(float(salario_base)))
                 formula = "6% Salário Base"
 
-            # ✅ CORREÇÃO 3: SALÁRIO FAMÍLIA - Usa dependentes do banco
             elif "FAMILIA" in nome.upper() or "FAMÍLIA" in nome.upper():
-                # Usa dependentes reais do banco (já vem no objeto funcionario)
-                qtd_filhos = dependentes  # Já foi buscado no SQL
+                qtd_filhos = funcionario.get("dependentes_salario_familia", 0)
                 v_esp = D(
                     calculations.calc_salario_familia(
                         float(nossa_base_inss), qtd_filhos
@@ -525,22 +457,21 @@ def run_fopag_audit(
                 )
                 formula = f"{qtd_filhos} filho(s) elegível(is)"
 
-            # Acumula nas bases
             if ev["tipo"] == 1:
                 total_proventos += v_esp
-                if ev["incidencias"]["inss"]:
+                if ev.get("incidencias", {}).get("inss"):
                     nossa_base_inss += v_esp
-                if ev["incidencias"]["irrf"]:
+                if ev.get("incidencias", {}).get("irrf"):
                     nossa_base_irrf += v_esp
-                if ev["incidencias"]["fgts"]:
+                if ev.get("incidencias", {}).get("fgts"):
                     nossa_base_fgts += v_esp
             else:
                 total_descontos += v_esp
-                if ev["incidencias"]["inss"]:
+                if ev.get("incidencias", {}).get("inss"):
                     nossa_base_inss -= v_esp
-                if ev["incidencias"]["irrf"]:
+                if ev.get("incidencias", {}).get("irrf"):
                     nossa_base_irrf -= v_esp
-                if ev["incidencias"]["fgts"]:
+                if ev.get("incidencias", {}).get("fgts"):
                     nossa_base_fgts -= v_esp
 
             registrar(
@@ -553,27 +484,22 @@ def run_fopag_audit(
                 tipo="P" if ev["tipo"] == 1 else "D",
             )
 
-        # ===================================================================
-        # 7. CÁLCULO DE IMPOSTOS
-        # ===================================================================
-
-        # Usa base do Fortes se disponível
-        base_inss_final = fortes_base_inss if fortes_base_inss > 0 else nossa_base_inss
-        base_irrf_final = fortes_base_irrf if fortes_base_irrf > 0 else nossa_base_irrf
-        base_fgts_final = fortes_base_fgts if fortes_base_fgts > 0 else nossa_base_fgts
+        # IMPOSTOS
+        base_inss_final = (
+            fortes_base_inss if fortes_base_inss > D("0") else nossa_base_inss
+        )
+        base_irrf_final = (
+            fortes_base_irrf if fortes_base_irrf > D("0") else nossa_base_irrf
+        )
+        base_fgts_final = (
+            fortes_base_fgts if fortes_base_fgts > D("0") else nossa_base_fgts
+        )
 
         # INSS
         inss_esp = D(calculations.calc_inss(float(base_inss_final)))
         inss_real = D(
             next((e["valor"] for e in lista_eventos if e["codigo"] == "310"), 0)
         )
-
-        mem_inss = {
-            "tipo": "INSS",
-            "variaveis": [{"nome": "Base", "valor": f"{base_inss_final:.2f}"}],
-            "passos": ["Tabela 2026"],
-            "resultado": f"{inss_esp:.2f}",
-        }
 
         registrar(
             "INSS",
@@ -582,27 +508,32 @@ def run_fopag_audit(
             "310",
             base=float(base_inss_final),
             formula="Tab. 2026",
-            memoria=mem_inss,
             tipo="D",
         )
         total_descontos += inss_esp
 
         # IRRF
-        res_irrf = calculations.calc_irrf_detalhado(
-            float(base_irrf_final), float(inss_esp), dependentes
+        inss_real_valor = D(
+            next((e["valor"] for e in lista_eventos if e["codigo"] == "310"), 0)
         )
+        inss_para_irrf = inss_real_valor if inss_real_valor > D("0") else inss_esp
+
+        res_irrf = calculations.calc_irrf_detalhado(
+            float(base_irrf_final), float(inss_para_irrf), dependentes
+        )
+
         irrf_esp = D(res_irrf["valor"])
-        irrf_real = D(
+        irrf_real_banco = D(
             next((e["valor"] for e in lista_eventos if e["codigo"] == "311"), 0)
         )
 
         registrar(
             "IRRF",
             irrf_esp,
-            irrf_real,
+            irrf_real_banco,
             "311",
             base=float(base_irrf_final),
-            formula="Tab. 2026",
+            formula="Tab. 2026 + Redutor (Lei 15.270/2025)",
             memoria=res_irrf["memoria"],
             tipo="D",
         )
