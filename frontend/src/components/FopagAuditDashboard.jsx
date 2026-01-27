@@ -53,16 +53,73 @@ export default function FopagAuditDashboard() {
     };
 
     const handleExportPDF = () => {
-        const doc = new jsPDF();
-        doc.text(`Divergências FOPAG - ${month}/${year}`, 14, 15);
+        // 1. Configura para Paisagem ('l') para ter mais largura
+        const doc = new jsPDF('l', 'mm', 'a4');
+
+        // Título e Metadados
+        doc.setFontSize(14);
+        doc.text(`Relatório de Divergências FOPAG - ${month}/${year}`, 14, 15);
+
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text(`Empresa: ${company} | Gerado em: ${new Date().toLocaleString()}`, 14, 22);
+
         const rows = [];
+
+        // Helper para formatar moeda
+        const fmtBRL = (val) => {
+            return typeof val === 'number'
+                ? val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                : val;
+        };
+
         data.divergencias.filter(d => d.tem_divergencia).forEach(d => {
             d.itens.filter(i => i.status === 'ERRO').forEach(item => {
-                rows.push([d.matricula, d.nome, `${item.evento} (${item.codigo})`, `R$ ${item.diferenca}`]);
+
+                // Monta a coluna de Diagnóstico com os dados novos do backend
+                // Ex: "Grau 20% x SM | Ref Banco: 20.0"
+                let diagnostico = item.formula || '';
+                if (item.msg) diagnostico += ` | ${item.msg}`;
+
+                rows.push([
+                    d.matricula,
+                    d.nome.substring(0, 30), // Trunca nomes muito longos
+                    `${item.evento} (${item.codigo})`,
+                    fmtBRL(item.esperado),    // Coluna Nova
+                    fmtBRL(item.real),        // Coluna Nova
+                    fmtBRL(item.diferenca),
+                    diagnostico               // Coluna Nova (A chave do sucesso!)
+                ]);
             });
         });
-        autoTable(doc, { head: [['Mat.', 'Nome', 'Evento', 'Diferença']], body: rows, startY: 25 });
-        doc.save(`FOPAG_${company}.pdf`);
+
+        autoTable(doc, {
+            head: [['Mat.', 'Nome', 'Evento', 'Esperado', 'Real', 'Dif.', 'Diagnóstico / Fórmula']],
+            body: rows,
+            startY: 28,
+            styles: {
+                fontSize: 8,
+                cellPadding: 2,
+                overflow: 'linebreak'
+            },
+            headStyles: {
+                fillColor: [41, 128, 185], // Azul Profissional
+                textColor: 255,
+                fontStyle: 'bold'
+            },
+            columnStyles: {
+                0: { cellWidth: 15 }, // Mat
+                1: { cellWidth: 60 }, // Nome
+                2: { cellWidth: 45 }, // Evento
+                3: { cellWidth: 25, halign: 'right' }, // Esp
+                4: { cellWidth: 25, halign: 'right' }, // Real
+                5: { cellWidth: 25, halign: 'right', fontStyle: 'bold', textColor: [200, 0, 0] }, // Dif (Vermelho)
+                6: { cellWidth: 'auto' } // Diagnóstico ocupa o resto
+            },
+            alternateRowStyles: { fillColor: [245, 245, 245] } // Zebra
+        });
+
+        doc.save(`Auditoria_FOPAG_${company}_${month}_${year}.pdf`);
     };
 
     const toggleRow = (id) => setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
