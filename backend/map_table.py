@@ -1,13 +1,13 @@
 import sys
 import os
-import itertools
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
-# Configuração de ambiente
+# Setup path
 sys.path.append(os.getcwd())
 try:
     from src.database import get_connection
 except ImportError:
+    # Fallback se rodar fora da estrutura
     sys.path.append(os.path.join(os.getcwd(), "backend"))
     from src.database import get_connection
 
@@ -18,166 +18,133 @@ def D(valor):
     return Decimal(str(valor))
 
 
-def reverse_engineer_he_base(valor_pago, horas, percentual, carga_horaria=220):
-    """
-    Fórmula HE: Base / 220 * (1 + %) * Horas = Valor
-    Base = (Valor * 220) / ((1 + %) * Horas)
-    """
-    valor = D(valor_pago)
-    h = D(horas)
-    if h == 0:
-        return D(0)
-    perc = D(percentual) / 100
-
-    # Base = (Valor * Carga) / (Fator * Horas)
-    fator = 1 + perc
-    base = (valor * D(carga_horaria)) / (D(fator) * h)
-    return base.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def find_combination(proventos, target_base):
-    eventos = list(proventos.items())  # [(Nome, Valor), ...]
-    matches = []
-
-    # Testa combinações de 1 a 5 eventos (aumentei o range)
-    for r in range(1, len(eventos) + 1):
-        if r > 5:
-            break  # Limita para não explodir
-        for combo in itertools.combinations(eventos, r):
-            soma = sum(item[1] for item in combo)
-            if abs(soma - target_base) < Decimal("0.05"):
-                matches.append([item[0] for item in combo])
-    return matches
+def fmt(val):
+    return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def run_investigation():
-    print("🕵️‍♂️ INICIANDO INVESTIGAÇÃO DE BASES - TRANSFORMAR (9189)")
+    print("\n🕵️‍♂️ INVESTIGAÇÃO DE BASES E INCIDÊNCIAS (FOLHA 2 - MENSAL)")
+    print("=" * 100)
 
-    # Matriculas do PDF
-    matriculas_alvo = [
-        "000284",
-        "000283",
-        "000282",
-        "000293",
-        "000279",
-        "000146",
-        "000195",
-    ]
+    # ALVOS:
+    # 000093 = Liliane
+    # 000147 = Joao Paulo
+    # 000287 = Aurino
+    # 000146 = Luciana
+    alvos = ["000093", "000147", "000287", "000146"]
 
-    placeholders = ",".join(["%s"] * len(matriculas_alvo))
+    placeholders = ",".join(["%s"] * len(alvos))
 
+    # OBS: Forçamos a busca na Folha Mensal (Folha = 2 no Fortes)
     sql = f"""
         SELECT 
-            EPG.Codigo,       -- 0
-            EPG.Nome,         -- 1
-            EFP.EVE_Codigo,   -- 2
-            EVE.NomeApr,      -- 3
-            EFP.Valor,        -- 4
-            EFP.Referencia,   -- 5
-            EVE.ProvDesc      -- 6
+            EPG.Codigo AS Mat,
+            EPG.Nome,
+            EFP.EVE_Codigo AS Cod,
+            EVE.NomeApr AS Evento,
+            EFP.Valor AS Valor,
+            EVE.ProvDesc AS Tipo, -- 1=Prov, 2=Desc
+            EVE.IndicativoCPMensalFerias AS Inc_INSS,
+            EVE.IndicativoIRRFMensal AS Inc_IRRF
         FROM EFO (NOLOCK)
         INNER JOIN EPG (NOLOCK) ON EFO.EMP_Codigo = EPG.EMP_Codigo AND EFO.EPG_Codigo = EPG.Codigo
         INNER JOIN EFP (NOLOCK) ON EFO.EMP_Codigo = EFP.EMP_Codigo AND EFO.FOL_Seq = EFP.EFO_FOL_Seq AND EFO.EPG_Codigo = EFP.EFO_EPG_Codigo
         INNER JOIN EVE (NOLOCK) ON EFP.EMP_Codigo = EVE.EMP_Codigo AND EFP.EVE_CODIGO = EVE.CODIGO
         WHERE EFO.EMP_Codigo = '9189'
-          AND EFO.FOL_Seq = (
-              SELECT TOP 1 Seq FROM FOL WHERE EMP_Codigo = '9189' AND Folha = 2 ORDER BY Seq DESC
-          )
+          -- Pega a última folha Tipo 2 (Mensal)
+          AND EFO.FOL_Seq = (SELECT TOP 1 Seq FROM FOL WHERE EMP_Codigo = '9189' AND Folha = 2 ORDER BY Seq DESC)
           AND EPG.Codigo IN ({placeholders})
-        ORDER BY EPG.Nome
+        ORDER BY EPG.Nome, EVE.ProvDesc, EFP.EVE_Codigo
     """
 
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(sql, matriculas_alvo)
+            cursor.execute(sql, alvos)
             rows = cursor.fetchall()
 
-            data = {}
-            # Processa usando ÍNDICES da tupla
+            curr_mat = None
+
+            # Acumuladores
+            base_inss_calc = Decimal(0)
+            base_irrf_calc = Decimal(0)
+
+            print(
+                f"{'COD':<5} {'EVENTO':<30} {'TIPO':<4} {'VALOR':<12} {'INC.INSS':<8} {'INC.IRRF'}"
+            )
+            print("-" * 100)
+
             for row in rows:
-                mat = row[0]
-                nome = row[1]
+                mat, nome, cod, evt, val, tipo, inc_inss, inc_irrf = row
 
-                if mat not in data:
-                    data[mat] = {"nome": nome, "eventos": [], "proventos": {}}
+                if mat != curr_mat:
+                    if curr_mat:
+                        print(
+                            f"   >>> SOMA SIMULADA: INSS={fmt(base_inss_calc)} | IRRF={fmt(base_irrf_calc)}"
+                        )
+                        print("=" * 100)
+                    print(f"\n👤 {nome} ({mat})")
+                    curr_mat = mat
+                    base_inss_calc = Decimal(0)
+                    base_irrf_calc = Decimal(0)
 
-                cod_evento = str(row[2])
-                desc_evento = row[3]
-                val = D(row[4])
-                ref = D(row[5]) if row[5] else D(0)
-                tipo = row[6]
-
-                data[mat]["eventos"].append(
-                    {
-                        "cod": cod_evento,
-                        "desc": desc_evento,
-                        "val": val,
-                        "ref": ref,
-                        "tipo": tipo,
-                    }
+                val_dec = D(val)
+                inc_inss_bool = (
+                    str(inc_inss).strip() not in ["0", "N", "None", ""]
+                    if inc_inss
+                    else False
+                )
+                inc_irrf_bool = (
+                    str(inc_irrf).strip() not in ["0", "N", "None", ""]
+                    if inc_irrf
+                    else False
                 )
 
-                # Guarda proventos para combinação (exceto HE)
-                if tipo == 1 and "HORA EXTRA" not in desc_evento.upper():
-                    data[mat]["proventos"][f"{desc_evento} ({val})"] = val
+                # Ignora bases informativas na soma
+                if cod not in [
+                    "600",
+                    "601",
+                    "602",
+                    "603",
+                    "604",
+                    "605",
+                    "606",
+                    "607",
+                    "608",
+                    "310",
+                    "311",
+                ]:
+                    if tipo == 1:  # Provento
+                        if inc_inss_bool:
+                            base_inss_calc += val_dec
+                        if inc_irrf_bool:
+                            base_irrf_calc += val_dec
+                    elif tipo == 2:  # Desconto
+                        if inc_inss_bool:
+                            base_inss_calc -= val_dec
+                        if inc_irrf_bool:
+                            base_irrf_calc -= val_dec
 
-            # Analisa
-            for mat, info in data.items():
-                print(f"\n👤 {info['nome']} (Mat: {mat})")
+                inc_inss_str = "SIM" if inc_inss_bool else "-"
+                inc_irrf_str = "SIM" if inc_irrf_bool else "-"
 
-                he_events = [
-                    e for e in info["eventos"] if "HORA EXTRA" in e["desc"].upper()
-                ]
-
-                if not he_events:
-                    print("   ⚠️ Nenhuma Hora Extra encontrada.")
-                    continue
-
-                for he in he_events:
-                    percentual = 50
-                    desc = he["desc"].upper()
-                    if "60" in desc:
-                        percentual = 60
-                    elif "100" in desc:
-                        percentual = 100
-
-                    horas = float(he["ref"])
-
-                    # Engenharia Reversa
-                    base_reversa = reverse_engineer_he_base(
-                        he["val"], horas, percentual
-                    )
-
-                    print(f"   🎯 Evento: {he['desc']}")
+                # Destaque
+                if cod in ["602", "603", "310", "311"]:
                     print(
-                        f"      Valor: R$ {he['val']} | Ref: {horas}h | %: {percentual}"
+                        f"   👉 {cod:<5} {evt:<30} {tipo:<4} R$ {fmt(val):<9} {'[BASE/IMP]':<15}"
                     )
-                    print(f"      🔎 BASE EFETIVA (Reversa): R$ {base_reversa}")
+                else:
+                    print(
+                        f"      {cod:<5} {evt:<30} {tipo:<4} R$ {fmt(val):<9} {inc_inss_str:<8} {inc_irrf_str}"
+                    )
 
-                    matches = find_combination(info["proventos"], base_reversa)
-
-                    if matches:
-                        print(f"      ✅ COMPOSIÇÃO:")
-                        for m in matches:
-                            print(f"         ➜ {' + '.join(m)}")
-                    else:
-                        print(
-                            f"      ❌ Sem match exato. Proventos disp: {list(info['proventos'].keys())}"
-                        )
-                        # Tenta adicionar Adic Noturno se não tiver
-                        pool_noturno = sum(
-                            p["val"]
-                            for p in info["eventos"]
-                            if "NOTURNO" in p["desc"].upper()
-                        )
-                        if pool_noturno > 0:
-                            print(
-                                f"         (Obs: Adic. Noturno total é R$ {pool_noturno})"
-                            )
+            if curr_mat:
+                print(
+                    f"   >>> SOMA SIMULADA: INSS={fmt(base_inss_calc)} | IRRF={fmt(base_irrf_calc)}"
+                )
 
     except Exception as e:
-        print(f"Erro fatal: {e}")
+        print(f"Erro: {e}")
 
 
 if __name__ == "__main__":

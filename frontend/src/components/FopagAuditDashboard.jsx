@@ -111,9 +111,9 @@ export default function FopagAuditDashboard() {
                 0: { cellWidth: 15 }, // Mat
                 1: { cellWidth: 60 }, // Nome
                 2: { cellWidth: 45 }, // Evento
-                3: { cellWidth: 25, halign: 'right' }, // Esp
-                4: { cellWidth: 25, halign: 'right' }, // Real
-                5: { cellWidth: 25, halign: 'right', fontStyle: 'bold', textColor: [200, 0, 0] }, // Dif (Vermelho)
+                3: { cellWidth: 25, halign: 'left' }, // Esp
+                4: { cellWidth: 25, halign: 'left' }, // Real
+                5: { cellWidth: 25, halign: 'left', fontStyle: 'bold', textColor: [200, 0, 0] }, // Dif (Vermelho)
                 6: { cellWidth: 'auto' } // Diagnóstico ocupa o resto
             },
             alternateRowStyles: { fillColor: [245, 245, 245] } // Zebra

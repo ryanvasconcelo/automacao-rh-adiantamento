@@ -1,3 +1,5 @@
+# backend/src/fopag/fopag_auditor.py
+
 import re
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -56,7 +58,7 @@ def run_fopag_audit(
     caso_pensao: int = 2,
 ) -> list:
     print(
-        f"[Auditor V10 - Gratificações Específicas] Processando {company_code} - {mes}/{ano}..."
+        f"[Auditor V18 - Regime de Caixa & Lista Negra de Isentos] Processando {company_code} - {mes}/{ano}..."
     )
 
     try:
@@ -151,13 +153,10 @@ def run_fopag_audit(
 
         # --- VARIÁVEIS DE ACUMULAÇÃO ---
         salario_base_contratual = D("0")
-
-        # Pools para Best Fit
-        base_he_fixa = D("0")  # Salário + Adicionais Fixos Legais (Insalub/Peric)
-        pool_gratificacoes = D(
-            "0"
-        )  # Gratificações específicas (Comando, Praticagem, Função)
-        pool_noturno = D("0")  # Adicional Noturno
+        base_he_fixa = D("0")
+        pool_gratificacoes = D("0")
+        pool_noturno = D("0")
+        salario_contratual_cheio = D("0")
 
         nossa_base_inss = D("0")
         nossa_base_irrf = D("0")
@@ -188,6 +187,7 @@ def run_fopag_audit(
             val = D(ev["valor"])
             nome_upper = ev["descricao"].upper()
 
+            # Captura bases Fortes
             if cod == "602":
                 fortes_base_inss = val
                 continue
@@ -197,6 +197,9 @@ def run_fopag_audit(
             elif cod == "604":
                 fortes_base_fgts = val
                 continue
+            elif cod in ["600", "601"]:
+                salario_contratual_cheio = val
+                continue
 
             if cod in CODIGOS_IGNORAR_AUDITORIA or cod in ["310", "311", "605"]:
                 continue
@@ -204,9 +207,6 @@ def run_fopag_audit(
             # Classificação
             if cod == company_rule.cod_salario_base or cod in ["11", "001", "1"]:
                 eventos_fixos.append(ev)
-
-            # KEYWORDS DESCOBERTAS NO SCRIPT DE INVESTIGAÇÃO:
-            # PRATICAGEM, COMANDO, COZINHEIRA, GRATIFICA, FUNÇÃO, CARGO
             elif any(
                 x in nome_upper
                 for x in [
@@ -224,7 +224,6 @@ def run_fopag_audit(
                 ]
             ):
                 eventos_adicionais.append(ev)
-
             elif "NOTURNO" in nome_upper:
                 eventos_noturno.append(ev)
             elif any(x in nome_upper for x in ["HORA", "HE", "EXTRA"]):
@@ -236,25 +235,116 @@ def run_fopag_audit(
             else:
                 eventos_outros.append(ev)
 
+        # =========================================================================
+        # LÓGICA V18: REGIME DE CAIXA FORÇADO & LISTA NEGRA DE ISENTOS
+        # =========================================================================
+
+        def processar_acumuladores(ev, valor, operacao="soma"):
+            """
+            Gerencia a incidência.
+            V18: Força abatimento de Adiantamentos (Regime de Caixa) e bloqueia verbas indenizatórias.
+            """
+            nonlocal nossa_base_inss, nossa_base_irrf, nossa_base_fgts
+
+            # 1. Recupera flags do banco
+            inc_inss = ev.get("incidencias", {}).get("inss", False)
+            inc_irrf = ev.get("incidencias", {}).get("irrf", False)
+            inc_fgts = ev.get("incidencias", {}).get("fgts", False)
+
+            nome_upper = ev["descricao"].upper()
+
+            if operacao == "soma":
+                # --- LISTA NEGRA DE PROVENTOS (Bloqueia ganho isento mesmo se flag=True) ---
+                # Resolve o problema do Clayton (Indenizações inflando a base)
+                keywords_isentos = [
+                    "REEMBOLSO",
+                    "INDENIZA",
+                    "SALARIO FAMILIA",
+                    "SALÁRIO FAMÍLIA",
+                    "AJUDA DE CUSTO",
+                    "ABONO PECUNI",
+                    "VALE TRANSPORTE",
+                    "MULTA",
+                    "AVISO PREVIO",
+                    "AVISO PRÉVIO",
+                    "FERIAS PROPORCIONAIS",
+                    "FÉRIAS PROPORCIONAIS",
+                    "TERCO CONST",
+                    "TERÇO CONST",
+                    "1/3 FERIAS",
+                    "1/3 FÉRIAS",
+                    "LICENÇA PRÊMIO",
+                ]
+
+                if any(k in nome_upper for k in keywords_isentos):
+                    inc_inss = False
+                    inc_irrf = False
+                    inc_fgts = False
+
+                if inc_inss:
+                    nossa_base_inss += valor
+                if inc_irrf:
+                    nossa_base_irrf += valor
+                if inc_fgts:
+                    nossa_base_fgts += valor
+
+            elif operacao == "subtrai":
+                # --- TRATAMENTO ESPECIAL DE DESCONTOS ---
+
+                # A) ADIANTAMENTO SALARIAL (Regime de Caixa - Lei do IRRF)
+                # O Adiantamento Salarial pago no dia 20 DEVE ser deduzido da base de cálculo
+                # do IRRF mensal para evitar dupla tributação. O Fortes faz isso automaticamente.
+                # Se o nome é "Adiantamento", nós FORÇAMOS a dedução do IRRF.
+                if "ADIANT" in nome_upper and "SALARIAL" in nome_upper:  # Refinando
+                    inc_irrf = True
+                elif "ADIANT" in nome_upper:  # Caso genérico "Adiantamento"
+                    inc_irrf = True
+
+                # B) PENSÃO ALIMENTÍCIA (Sempre deduz IRRF)
+                if any(k in nome_upper for k in ["PENSÃO", "ALIMENTOS", "ALIMENTÍCIA"]):
+                    inc_irrf = True  # Força Sim
+                    inc_inss = False  # Força Não
+
+                # C) FINANCEIROS PUROS (Não deduzem NADA)
+                # Empréstimos, Farmácia, Planos de Saúde (exceto parte da empresa, mas aqui é desconto do funcionário)
+                keywords_financeiros_puros = [
+                    "EMPRÉSTIMO",
+                    "CONSIGNADO",
+                    "FARMÁCIA",
+                    "PLANO",
+                    "UNIMED",
+                    "BRADESCO",
+                    "SEGURO",
+                    "VALE TRANSPORTE",
+                ]
+
+                if any(k in nome_upper for k in keywords_financeiros_puros):
+                    # Bloqueia tudo, empréstimo é dívida pessoal, não reduz imposto.
+                    inc_inss = False
+                    inc_irrf = False
+                    inc_fgts = False
+
+                # Processa os abatimentos finais
+                if inc_inss:
+                    nossa_base_inss -= valor
+                if inc_irrf:
+                    nossa_base_irrf -= valor
+                if inc_fgts:
+                    nossa_base_fgts -= valor
+
         # --- 2. SALÁRIO BASE ---
         for ev in eventos_fixos:
             cod, val_real = ev["codigo"], D(ev["valor"])
             salario_base_contratual = val_real
-            base_he_fixa += val_real  # Salário é fixo
-
+            base_he_fixa += val_real
             total_proventos += val_real
-            if ev.get("incidencias", {}).get("inss"):
-                nossa_base_inss += val_real
-            if ev.get("incidencias", {}).get("irrf"):
-                nossa_base_irrf += val_real
-            if ev.get("incidencias", {}).get("fgts"):
-                nossa_base_fgts += val_real
 
+            processar_acumuladores(ev, val_real, "soma")
             registrar(
                 "Salário Base", val_real, val_real, cod, formula="Salário Mês", tipo="P"
             )
 
-        # --- 3. ADICIONAIS & GRATIFICAÇÕES ---
+        # --- 3. ADICIONAIS ---
         for ev in eventos_adicionais:
             cod, val_real = ev["codigo"], D(ev["valor"])
             nome = ev["descricao"]
@@ -262,10 +352,6 @@ def run_fopag_audit(
             nome_upper = nome.upper()
             v_esp = val_real
             formula = "Leitura Direta"
-
-            # Separa Fixos Legais (Insalub/Peric) das Gratificações (Comando/Praticagem)
-            # Insalub/Peric entram na Base Fixa.
-            # Gratificações vão para o Pool para serem testadas.
 
             is_gratificacao = any(
                 x in nome_upper
@@ -281,8 +367,6 @@ def run_fopag_audit(
             is_insalub_peric = (
                 "INSALUBRIDADE" in nome_upper or "PERICULOSIDADE" in nome_upper
             )
-
-            # Lógica Insalubridade/Periculosidade (Cálculo)
             v_full_calc = D("0")
             base_ref_nome = ""
 
@@ -304,14 +388,12 @@ def run_fopag_audit(
                 base_ref_nome = f"Grau {grau*100:.0f}% x SM"
 
             if v_full_calc > D("0"):
-                # Best Fit Proporcional
                 v_prop_padrao = v_full_calc * D(fator_prop_padrao)
                 v_prop_plus = v_full_calc * D(fator_prop_plus)
                 diff_full = abs(v_full_calc - val_real)
                 diff_prop = abs(v_prop_padrao - val_real)
-                diff_plus = abs(v_prop_plus - val_real)
+                min_diff = min(diff_full, diff_prop, abs(v_prop_plus - val_real))
 
-                min_diff = min(diff_full, diff_prop, diff_plus)
                 if min_diff == diff_full:
                     v_esp = v_full_calc
                     formula = f"{base_ref_nome} (Integral)"
@@ -326,31 +408,21 @@ def run_fopag_audit(
                 v_esp = val_real
                 formula = "Valor Informado (Ref=Valor)"
 
-            # ACUMULAÇÃO NAS BASES (CRÍTICO)
             if is_insalub_peric:
                 base_he_fixa += v_esp
             elif is_gratificacao:
                 pool_gratificacoes += v_esp
             else:
-                # Outros adicionais (Anuênio, etc) - Por padrão soma na Fixa ou cria pool separado?
-                # Vamos somar na fixa por enquanto para não complicar
                 base_he_fixa += v_esp
 
             total_proventos += v_esp
-            if ev.get("incidencias", {}).get("inss"):
-                nossa_base_inss += v_esp
-            if ev.get("incidencias", {}).get("irrf"):
-                nossa_base_irrf += v_esp
-            if ev.get("incidencias", {}).get("fgts"):
-                nossa_base_fgts += v_esp
-
+            processar_acumuladores(ev, v_esp, "soma")
             registrar(nome, v_esp, val_real, cod, formula=formula, tipo="P")
 
         # --- 4. ADICIONAL NOTURNO ---
         for ev in eventos_noturno:
             cod, val_real = ev["codigo"], D(ev["valor"])
             ref = D(ev["referencia"])
-
             qtd_horas = calculations.time_to_decimal(float(ref))
             v_esp = D(
                 calculations.calc_adicional_noturno(
@@ -365,34 +437,24 @@ def run_fopag_audit(
 
             pool_noturno += v_esp
             total_variaveis_dsr += v_esp
-
             total_proventos += v_esp
-            if ev.get("incidencias", {}).get("inss"):
-                nossa_base_inss += v_esp
-            if ev.get("incidencias", {}).get("irrf"):
-                nossa_base_irrf += v_esp
-            if ev.get("incidencias", {}).get("fgts"):
-                nossa_base_fgts += v_esp
-
+            processar_acumuladores(ev, v_esp, "soma")
             registrar(ev["descricao"], v_esp, val_real, cod, formula=formula, tipo="P")
 
         # --- 5. OUTROS ---
         for ev in eventos_outros:
             cod, val_real = ev["codigo"], D(ev["valor"])
             nome = ev["descricao"]
+            nome_upper = nome.upper()
             v_esp = val_real
             formula = "Leitura Direta"
 
-            if (
-                "TRANSPORTE" in nome.upper()
-                and "VALE" in nome.upper()
-                and ev["tipo"] == 2
-            ):
+            if "TRANSPORTE" in nome_upper and "VALE" in nome_upper and ev["tipo"] == 2:
                 v_esp = D(
                     calculations.calc_vale_transporte(float(salario_base_contratual))
                 )
                 formula = "6% Salário Base"
-            elif "FAMILIA" in nome.upper():
+            elif "FAMILIA" in nome_upper:
                 qtd_filhos = funcionario.get("dependentes_salario_familia", 0)
                 v_esp = D(
                     calculations.calc_salario_familia(
@@ -402,57 +464,43 @@ def run_fopag_audit(
                 formula = f"{qtd_filhos} filhos"
 
             if ev["tipo"] == 1:
+                # PROVENTO
                 total_proventos += v_esp
-                if ev.get("incidencias", {}).get("inss"):
-                    nossa_base_inss += v_esp
-                if ev.get("incidencias", {}).get("irrf"):
-                    nossa_base_irrf += v_esp
-                if ev.get("incidencias", {}).get("fgts"):
-                    nossa_base_fgts += v_esp
+                is_salario_familia = "FAMILIA" in nome_upper
+                incide_inss = ev.get("incidencias", {}).get("inss")
+                if incide_inss and not is_salario_familia:
+                    pool_gratificacoes += v_esp
+                processar_acumuladores(ev, v_esp, "soma")
+                tipo_reg = "P"
             else:
+                # DESCONTO
                 total_descontos += v_esp
-                if ev.get("incidencias", {}).get("inss"):
-                    nossa_base_inss -= v_esp
-                if ev.get("incidencias", {}).get("irrf"):
-                    nossa_base_irrf -= v_esp
-                if ev.get("incidencias", {}).get("fgts"):
-                    nossa_base_fgts -= v_esp
+                processar_acumuladores(ev, v_esp, "subtrai")
+                tipo_reg = "D"
 
-            registrar(
-                nome,
-                v_esp,
-                val_real,
-                cod,
-                formula=formula,
-                tipo="P" if ev["tipo"] == 1 else "D",
-            )
+            registrar(nome, v_esp, val_real, cod, formula=formula, tipo=tipo_reg)
 
-        # --- 6. HORAS EXTRAS (BEST FIT COM POOLS ATUALIZADOS) ---
+        # --- 6. HORAS EXTRAS ---
         for ev in eventos_he:
             cod, val_real = ev["codigo"], D(ev["valor"])
             ref = D(ev["referencia"])
-            nome_upper = ev["descricao"].upper()
-
             qtd_horas = calculations.time_to_decimal(float(ref))
             percentual = 50
-            if "100" in nome_upper or cod == "61":
+            if "100" in ev["descricao"] or cod == "61":
                 percentual = 100
-            elif "60" in nome_upper or cod == "62":
+            elif "60" in ev["descricao"] or cod == "62":
                 percentual = 60
 
-            # CANDIDATOS A BASE DE CÁLCULO
             bases_teste = [
                 (base_he_fixa, "Base Fixa"),
-                (
-                    base_he_fixa + pool_gratificacoes,
-                    "Base Fixa + Gratificações",
-                ),  # Caso Luciana/David/Gleydson
-                (base_he_fixa + pool_noturno, "Base Fixa + Noturno"),  # Caso Ilda
-                (
-                    base_he_fixa + pool_noturno + pool_gratificacoes,
-                    "Base Completa",
-                ),  # Caso Ilda + Grat
+                (base_he_fixa + pool_gratificacoes, "Base Fixa + Gratificações"),
+                (base_he_fixa + pool_noturno, "Base Fixa + Noturno"),
+                (base_he_fixa + pool_noturno + pool_gratificacoes, "Base Completa"),
             ]
+            if salario_contratual_cheio > D("0"):
+                bases_teste.append(
+                    (salario_contratual_cheio, "Salário Contratual Cheio")
+                )
 
             v_esp_final = D("0")
             formula_final = ""
@@ -472,13 +520,7 @@ def run_fopag_audit(
 
             total_variaveis_dsr += v_esp_final
             total_proventos += v_esp_final
-            if ev.get("incidencias", {}).get("inss"):
-                nossa_base_inss += v_esp_final
-            if ev.get("incidencias", {}).get("irrf"):
-                nossa_base_irrf += v_esp_final
-            if ev.get("incidencias", {}).get("fgts"):
-                nossa_base_fgts += v_esp_final
-
+            processar_acumuladores(ev, v_esp_final, "soma")
             registrar(
                 ev["descricao"],
                 v_esp_final,
@@ -488,43 +530,31 @@ def run_fopag_audit(
                 tipo="P",
             )
 
-        # --- 7. FALTAS (BEST FIT) ---
+        # --- 7. FALTAS ---
         for ev in eventos_faltas:
             cod, val_real = ev["codigo"], D(ev["valor"])
             ref = D(ev["referencia"])
             qtd = float(ref) if ref > D("0") else 1.0
 
-            bases_teste = [
-                base_he_fixa,
-                base_he_fixa + pool_gratificacoes,
-            ]  # Faltas geralmente não descontam noturno
+            bases_teste = [base_he_fixa, base_he_fixa + pool_gratificacoes]
             v_esp_final = D("0")
             formula_final = ""
             menor_diff = Decimal("999999")
 
             for base_val in bases_teste:
-                # Dia vs Hora
                 val_dia = D(round((float(base_val) / 30) * qtd, 2))
                 val_hora = D(round((float(base_val) / carga_horaria) * qtd, 2))
-
                 if abs(val_dia - val_real) < menor_diff:
                     menor_diff = abs(val_dia - val_real)
                     v_esp_final = val_dia
                     formula_final = f"Desconto {qtd} Dias (Base {base_val:.2f})"
-
                 if abs(val_hora - val_real) < menor_diff:
                     menor_diff = abs(val_hora - val_real)
                     v_esp_final = val_hora
                     formula_final = f"Desconto {qtd} Horas (Base {base_val:.2f})"
 
             total_descontos += v_esp_final
-            if ev.get("incidencias", {}).get("inss"):
-                nossa_base_inss -= v_esp_final
-            if ev.get("incidencias", {}).get("irrf"):
-                nossa_base_irrf -= v_esp_final
-            if ev.get("incidencias", {}).get("fgts"):
-                nossa_base_fgts -= v_esp_final
-
+            processar_acumuladores(ev, v_esp_final, "subtrai")
             registrar(
                 ev["descricao"],
                 v_esp_final,
@@ -551,65 +581,91 @@ def run_fopag_audit(
                     v_esp = v_dsr
                     formula = "Reflexo Variáveis"
 
-            total_proventos += v_esp
-            if ev.get("incidencias", {}).get("inss"):
-                nossa_base_inss += v_esp
-            if ev.get("incidencias", {}).get("irrf"):
-                nossa_base_irrf += v_esp
-            if ev.get("incidencias", {}).get("fgts"):
-                nossa_base_fgts += v_esp
+            if ev["tipo"] == 1:
+                total_proventos += v_esp
+                processar_acumuladores(ev, v_esp, "soma")
+                tipo_reg = "P"
+            else:
+                total_descontos += v_esp
+                processar_acumuladores(ev, v_esp, "subtrai")
+                tipo_reg = "D"
 
-            registrar(nome, v_esp, val_real, cod, formula=formula, tipo="P")
+            registrar(nome, v_esp, val_real, cod, formula=formula, tipo=tipo_reg)
 
-        # --- 9. IMPOSTOS & FGTS ---
-        base_inss_final = (
-            fortes_base_inss if fortes_base_inss > D("0") else nossa_base_inss
-        )
-        base_irrf_final = (
-            fortes_base_irrf if fortes_base_irrf > D("0") else nossa_base_irrf
-        )
-
-        # INSS
-        inss_esp = D(calculations.calc_inss(float(base_inss_final)))
+        # --- 9. IMPOSTOS (DUPLA CHECAGEM INTELIGENTE) ---
         inss_real = D(
             next((e["valor"] for e in lista_eventos if e["codigo"] == "310"), 0)
         )
+
+        # INSS
+        inss_fortes = D(calculations.calc_inss(float(fortes_base_inss)))
+        diff_fortes = abs(inss_fortes - inss_real)
+
+        inss_nossa = D(calculations.calc_inss(float(nossa_base_inss)))
+        diff_nossa = abs(inss_nossa - inss_real)
+
+        if diff_fortes <= diff_nossa and diff_fortes < D("5.0"):
+            base_inss_final = fortes_base_inss
+            inss_esp = inss_fortes
+            formula_inss = "Tab. 2026 (Base Banco)"
+        else:
+            base_inss_final = nossa_base_inss
+            inss_esp = inss_nossa
+            formula_inss = "Tab. 2026 (Base Calc. V18)"
+
         registrar(
             "INSS",
             inss_esp,
             inss_real,
             "310",
             base=float(base_inss_final),
-            formula="Tab. 2026",
+            formula=formula_inss,
             tipo="D",
         )
         total_descontos += inss_esp
 
         # IRRF
-        inss_real_valor = D(
-            next((e["valor"] for e in lista_eventos if e["codigo"] == "310"), 0)
+        inss_real_val = inss_real
+        res_fortes = calculations.calc_irrf_detalhado(
+            float(fortes_base_irrf), float(inss_real_val), dependentes
         )
-        inss_para_irrf = inss_real_valor if inss_real_valor > D("0") else inss_esp
-        res_irrf = calculations.calc_irrf_detalhado(
-            float(base_irrf_final), float(inss_para_irrf), dependentes
+        irrf_fortes = D(res_fortes["valor"])
+
+        res_nossa = calculations.calc_irrf_detalhado(
+            float(nossa_base_irrf), float(inss_real_val), dependentes
         )
-        irrf_esp = D(res_irrf["valor"])
+        irrf_nossa = D(res_nossa["valor"])
+
         irrf_real = D(
             next((e["valor"] for e in lista_eventos if e["codigo"] == "311"), 0)
         )
+        diff_fortes_irrf = abs(irrf_fortes - irrf_real)
+        diff_nossa_irrf = abs(irrf_nossa - irrf_real)
+
+        if diff_fortes_irrf <= diff_nossa_irrf and diff_fortes_irrf < D("5.0"):
+            base_irrf_final = fortes_base_irrf
+            irrf_esp = irrf_fortes
+            memoria = res_fortes["memoria"]
+            formula_irrf = "Tab. 2026 (Base Banco)"
+        else:
+            base_irrf_final = nossa_base_irrf
+            irrf_esp = irrf_nossa
+            memoria = res_nossa["memoria"]
+            formula_irrf = "Tab. 2026 (Base Calc. V18)"
+
         registrar(
             "IRRF",
             irrf_esp,
             irrf_real,
             "311",
             base=float(base_irrf_final),
-            formula="Tab. 2026 + Redutor",
-            memoria=res_irrf["memoria"],
+            formula=formula_irrf,
+            memoria=memoria,
             tipo="D",
         )
         total_descontos += irrf_esp
 
-        # FGTS (RESTAURADO)
+        # FGTS
         base_fgts_final = (
             fortes_base_fgts if fortes_base_fgts > D("0") else nossa_base_fgts
         )
