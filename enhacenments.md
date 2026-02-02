@@ -4,31 +4,6 @@ Lógica
 - Colocar um sistema básico de autenticacao (o sistema mais básico possivel, que reset a cada 12 horas, nao queremos algo complexo é apenas uma validacao basica de usuario e senha, ate porque se trata de um ambiente interno, entao nao vamos nos demorar nessa feature, ele deve ser a ultima feat a ser implementada, vamos dar prioridade as outras)
 - Adicionar totalidade de eventos vindos do conecta - analisar logs - Natureza Total 3 - Vale R$ 1031.66 5 - Hora Extra 100% 668:38h 7 - Adicional Noturno 1016:45h - adicionar totalizador de eventos por empresa na fopag
 
-Correcoes
-
-Falta: o sistema ainda nao consegue diferenciar se o valor de falta é em dias ou é em horas, aparentemente os valores de faltam em dias e falta em horas vem do mesmo lugar e o nosso auditor nao consegue diferenciar, temos que trabalhar em cima disso  salario família, o valor do salario família esta definido no código, mas ele nao esta sendo atribuído, temos que capturar do banco quantos dependentes o funcionário tem aparentemente
-
-IRRF - nao sei por que esta errado
-
-Descanso Semanal Remunerado: tbm n sei exatamente porque esta errado
-
-
-Insalubridade: temos que fazer o sistema capturar do banco a porcentagem exata da insalubridade (geralmente 20 ou 40%)
-
-Hora Extra 50% estao com uma leve divergência, nao sei a origem ainda
-Hora Extra 100% estao com uma leve divergência, nao sei a origem ainda
-
-
-mapear insalubridade
-Vale transporte fixo ou percentual
-Dependentes do salario familia
-Diferenciar falta em horas e falta em dias
-
-
-Como se calcular o irrf?
-Estou enviando a lista de tarefas/ajustes/melhorias que definimos em nossa última reunião. Vamos fazer um checklist delas na próxima reunião para garantir que todas elas foram aplicadas a versão oficial do Auditor GFS
-Esta será uma rotina padrão nos nossos encontros, a fim de termos transparência e clareza sobre o progresso que estamos realizando no Projeto. Se alguma das tarefas não estiver conforme o que foi discutido, por gentileza, comuniquem ao nosso time aqui neste grupo mesmo
-
 *Lista de Tarefas - Auditor GFS*
 Correções e Ajustes de Base de Cálculo
 * Salário-família: Corrigir incidência - o valor de salário-família não deve ser considerado no cálculo do salário base
@@ -63,10 +38,23 @@ Premio nao conta nas bases em algumas empresas
 
 
 
+Demonstracao
+V-Baso do Calculo....2.148,14
+    V Eventos da Base de Cálculo.....275,00 =
+            Salario-Base 275,00 +
+        Férias nesta Competência...1.873,14 +
+    INSS Faixa 1: 1.621,00 x 7,5%...................121,57 +
+    INSS Faixa 2: (2.148,14 - 1.621,00) = 9,0%......47,44 +
+    V-INSS já descontado............................145,81 -
+        Férias..................................145,81 +
+    INSS Total......................................23,20 =
 
 
 
 
 
+Categorização de Eventos: Proventos/Descontos funcionando - implementar no frontend
 
+Totalizadores por Funcionário: Implementado (proventos, descontos, líquido) - implementar no frontend
 
+Memória de Cálculo: Implementada para IRRF e INSS - implementar para todos os eventos que sao calculados, sem excecao, se nao for leitura direta, deve ter calculo exibido

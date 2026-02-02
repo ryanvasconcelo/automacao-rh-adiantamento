@@ -12,29 +12,32 @@ import holidays
 # Salário Mínimo Nacional 2026
 SALARIO_MINIMO_2026 = 1621.00
 
-# INSS 2026 - Tabela Progressiva OFICIAL
-# IMPORTANTE: O Fortes usa cálculo PROGRESSIVO (não por dedução)
-# Fonte: Portaria Interministerial MPS/MF Nº 13, de 9 de janeiro de 2026
+# INSS 2026 - Tabela Progressiva (Estimativa baseada em Salário Mínimo R$ 1.621)
+# Faixas ajustadas para refletir progressão típica
 INSS_TETO_2026 = 988.07
 INSS_TABLE_2026 = [
     (1621.00, 0.075, 0.00),
-    (2902.84, 0.09, 24.30),
-    (4354.27, 0.12, 130.59),
-    (8475.55, 0.14, 217.60),
+    (
+        2902.84,
+        0.09,
+        24.31,
+    ),  # (1621 * 0.075) = 121.57. (2902-1621)*0.09=115.36. deducao pra faciltar? Fortes usa progressivo puro.
+    (4354.27, 0.12, 130.60),
+    (8475.55, 0.14, 217.68),  # Teto de contribuição aumenta
 ]
 
 # Salário Família 2026
 TETO_SALARIO_FAMILIA_2026 = 1980.38
 VALOR_COTA_SALARIO_FAMILIA_2026 = 67.54
 
-# IRRF 2026 - Tabela com Redutor (Lei 15.270/2025)
+# IRRF 2026 - Tabela com Redutor (Lei 15.270/2025) - Conforme Print Fortes
 IRRF_DEDUCAO_DEPENDENTE_2026 = 189.59
 IRRF_TABLE_2026 = [
-    (2428.80, 0.0, 0.0),
-    (2826.65, 0.075, 182.16),
-    (3751.05, 0.15, 394.16),
-    (4664.68, 0.225, 675.49),
-    (float("inf"), 0.275, 908.73),
+    (2428.80, 0.0, 0.0),  # Isento até 2428.80
+    (2826.65, 0.075, 182.16),  # Deducao 182.16
+    (3751.05, 0.15, 394.16),  # Deducao 394.16
+    (4664.68, 0.225, 675.49),  # Deducao 675.49
+    (float("inf"), 0.275, 908.73),  # Deducao 908.73
 ]
 
 # Constantes
@@ -118,48 +121,102 @@ def get_dias_uteis_dsr(ano: int, mes: int, data_admissao: date = None) -> dict:
 # ============================================================================
 
 
-def calc_inss(salario_bruto: float) -> float:
+def calc_inss_progressivo_2026(
+    salario_bruto: float, detalhes_base: list = None, abatimentos: list = None
+):
     """
-    Calcula INSS progressivo 2026 - MÉTODO FAIXA POR FAIXA.
-
-    Este é o método que o Fortes Sistemas usa:
-    - Calcula cada faixa separadamente
-    - Arredonda cada faixa (round, não truncate)
-    - Soma todas as faixas
-
-    Base VITOR (R$ 7.156,89):
-    - Faixa 1: 1621.00 × 7,5% = 121.58
-    - Faixa 2: (2902.84 - 1621.00) × 9% = 115.37
-    - Faixa 3: (4354.27 - 2902.84) × 12% = 174.17
-    - Faixa 4: (7156.89 - 4354.27) × 14% = 392.37
-    - TOTAL: 803.49 (aprox 803.46 com arredondamentos)
+    Calcula INSS progressivo 2026 - MÉTODO FORTES.
+    Retorna dicionário {valor, memoria}.
+    :param salario_bruto: Base total de INSS.
+    :param detalhes_base: Lista opcional de dicts {"nome": str, "valor": float} que compõem a base.
+    :param abatimentos: Lista opcional de dicts {"nome": str, "valor": float} já descontados (ex: Férias).
     """
-    if salario_bruto > INSS_TABLE_2026[-1][0]:
-        return INSS_TETO_2026
-
     inss_total = 0.0
     base_anterior = 0.0
+    memoria_variaveis = []
+
+    # --- 1. DETALHAMENTO DA BASE ---
+    if detalhes_base:
+        memoria_variaveis.append(
+            {
+                "nome": "Base de Cálculo",
+                "valor": f"R$ {salario_bruto:,.2f}",
+                "destaque": True,
+            }
+        )
+        memoria_variaveis.append({"nome": "Eventos da Base de Cálculo", "valor": "---"})
+        for item in detalhes_base:
+            memoria_variaveis.append(
+                {"nome": f"   {item['nome']}", "valor": f"R$ {item['valor']:,.2f}"}
+            )
+    else:
+        memoria_variaveis.append(
+            {"nome": "Base de Cálculo", "valor": f"R$ {salario_bruto:,.2f}"}
+        )
+
+    memoria_variaveis.append({"nome": "Cálculo Faixa a Faixa", "valor": "---"})
 
     # Cálculo progressivo com arredondamento por faixa
-    for limite, aliquota, _ in INSS_TABLE_2026:
+    for idx, (limite, aliquota, _) in enumerate(INSS_TABLE_2026):
         if salario_bruto > base_anterior:
             # Base tributável nesta faixa
             base_faixa = min(salario_bruto, limite) - base_anterior
 
             # Calcula INSS desta faixa
             inss_faixa = base_faixa * aliquota
-
-            # Arredonda (round) - O Fortes usa round, não truncate
             inss_faixa_arredondado = round(inss_faixa, 2)
 
             inss_total += inss_faixa_arredondado
+
+            # Registro na memória
+            memoria_variaveis.append(
+                {
+                    "nome": f"Faixa {idx+1} ({base_faixa:,.2f} x {aliquota*100}%)",
+                    "valor": f"R$ {inss_faixa_arredondado:,.2f}",
+                }
+            )
+
             base_anterior = limite
 
             # Se a base está dentro desta faixa, para
             if salario_bruto <= limite:
                 break
 
-    return round(inss_total, 2)
+    # Trava no Teto se passar
+    if inss_total > INSS_TETO_2026:
+        inss_total = INSS_TETO_2026
+        memoria_variaveis.append(
+            {"nome": "Ajuste Teto Máximo", "valor": f"Limitado a R$ {INSS_TETO_2026}"}
+        )
+
+    # --- 2. ABATIMENTOS (INSS JÁ DESCONTADO) ---
+    total_abatimentos = 0.0
+    if abatimentos:
+        memoria_variaveis.append({"nome": "INSS já descontado", "valor": "---"})
+        for item in abatimentos:
+            valor_abatimento = item["valor"]
+            total_abatimentos += valor_abatimento
+            memoria_variaveis.append(
+                {"nome": f"   {item['nome']}", "valor": f"R$ {valor_abatimento:,.2f} -"}
+            )
+
+        inss_total -= total_abatimentos
+
+    inss_final = max(0, round(inss_total, 2))
+
+    return {
+        "valor": inss_final,
+        "memoria": {
+            "tipo": "INSS Progressivo 2026 (Detalhado)",
+            "variaveis": memoria_variaveis,
+            "resultado": f"R$ {inss_final:,.2f}",
+        },
+    }
+
+
+# Wrapper para compatibilidade legado (se necessário em outros pontos que esperam float direto)
+def calc_inss(salario_bruto: float) -> float:
+    return calc_inss_progressivo_2026(salario_bruto)["valor"]
 
 
 # ============================================================================
@@ -167,34 +224,28 @@ def calc_inss(salario_bruto: float) -> float:
 # ============================================================================
 
 
-def calc_irrf_detalhado(rendimento_bruto: float, inss: float, deps: int) -> dict:
+def calc_irrf_detalhado(
+    rendimento_input: float, inss: float, deps: int, is_net: bool = False
+) -> dict:
     """
-    IRRF 2026 - MÉTODO FORTES CORRETO (DESCOBERTO APÓS ANÁLISE!)
-    Lei 15.270/2025
-
-    O Fortes calcula assim (diferente da lei, mas é o que eles fazem):
-    1. Calcula base líquida (bruto - inss - deps) → para DETERMINAR A FAIXA
-    2. Aplica a ALÍQUOTA da faixa na BASE BRUTA → IRRF Parcial
-    3. Deduz R$ 908,73 (dedução fixa) → IRRF antes da Redução
-    4. Calcula Redutor usando (BASE BRUTA + INSS)
-    5. IRRF Final = IRRF antes Redução - Redutor
-
-    Exemplo Real (Base: 6.547,84; INSS: 794,14; Deps: 0):
-    - Base Líquida: 6.547,84 - 794,14 - 0 = 5.753,70
-    - Faixa: 27,5% (pois 5.753,70 > 4.664,68)
-    - IRRF Parcial: 6.547,84 × 0,275 = 1.800,66
-    - Dedução: -908,73
-    - IRRF antes Redução: 891,93
-    - Base Redutor: 6.547,84 + 794,14 = 7.341,98
-    - Redutor: 978,62 - (0,133145 × 7.341,98) = 1,07
-    - IRRF Final: 891,93 - 1,07 = 890,86 ✓
+    IRRF 2026 - MÉTODO FORTES (Lei 15.270/2025)
+    Restaurado conforme solicitação do usuário.
+    :param rendimento_input: Salário Bruto (se is_net=False) ou Base Líquida (se is_net=True)
+    :param is_net: Se True, considera que rendimento_input já é a base líquida (após INSS/Deps).
     """
-
-    # -----------------------------
-    # 1. Base Líquida (para determinar a faixa)
-    # -----------------------------
     deducao_dependentes = deps * IRRF_DEDUCAO_DEPENDENTE_2026
-    base_liquida = round(rendimento_bruto - inss - deducao_dependentes, 2)
+
+    if is_net:
+        base_liquida = round(rendimento_input, 2)
+        # Reconstitui bruto para redutor
+        base_para_redutor = round(base_liquida + inss + deducao_dependentes, 2)
+        bruto_display = base_para_redutor  # Estimado
+    else:
+        rendimento_bruto = rendimento_input
+        # Nota: A pensão já deve ter sido deduzida do 'rendimento_bruto' pelo auditor antes de chamar esta função.
+        base_liquida = round(rendimento_bruto - inss - deducao_dependentes, 2)
+        base_para_redutor = round(rendimento_bruto, 2)  # Bruto Original
+        bruto_display = rendimento_bruto
 
     if base_liquida <= 0:
         return {
@@ -202,7 +253,7 @@ def calc_irrf_detalhado(rendimento_bruto: float, inss: float, deps: int) -> dict
             "memoria": {
                 "tipo": "IRRF 2026 - Fortes",
                 "variaveis": [
-                    {"nome": "Base IRRF", "valor": f"R$ {rendimento_bruto:,.2f}"},
+                    {"nome": "Base IRRF (Bruta)", "valor": f"R$ {bruto_display:,.2f}"},
                     {"nome": "INSS", "valor": f"R$ {inss:,.2f}"},
                     {"nome": "Dependentes", "valor": deps},
                     {"nome": "Base Líquida", "valor": f"R$ {base_liquida:,.2f}"},
@@ -231,25 +282,32 @@ def calc_irrf_detalhado(rendimento_bruto: float, inss: float, deps: int) -> dict
         faixa_nome = "27,5%"
 
     # -----------------------------
-    # 3. Aplica a ALÍQUOTA na BASE BRUTA (não na líquida!)
+    # 3. Aplica a ALÍQUOTA na BASE LÍQUIDA (Confirmado no print Fortes: 4.954,45 * 27,50%)
     # -----------------------------
-    irrf_parcial = round(rendimento_bruto * aliquota, 2)
+    irrf_parcial = round(base_liquida * aliquota, 2)
 
     # -----------------------------
-    # 4. Dedução Fixa de R$ 908,73
+    # 4. Dedução Fixa (Look up na tabela)
+    # Precisamos pegar a dedução da faixa correta
     # -----------------------------
-    DEDUCAO_FIXA = 908.73
+    DEDUCAO_FIXA = 0.0
+    for lim, aliq, ded in IRRF_TABLE_2026:
+        if base_liquida <= lim:
+            DEDUCAO_FIXA = ded
+            break
+
     irrf_antes_reducao = max(0.0, round(irrf_parcial - DEDUCAO_FIXA, 2))
 
     # -----------------------------
     # 5. Redutor Lei 15.270/2025
-    # Base para redutor = BASE BRUTA + INSS (não base líquida!)
+    # Base para redutor = BASE BRUTA (Rendimentos Tributáveis)
+    # Fórmula print: 978,62 - (0,133145 x 5.750,63)
     # -----------------------------
-    base_para_redutor = round(rendimento_bruto + inss, 2)
 
     if base_para_redutor <= 5000.00:
-        # Isento até R$ 5.000
-        redutor = irrf_antes_reducao  # Zera o imposto
+        # Isento até R$ 5.000 (na verdade, redutor anula o imposto)
+        # O print diz: "até R$ 5.000,00 ... de modo que imposto seja zero"
+        redutor = irrf_antes_reducao
         faixa_redutor = "Isento até R$ 5.000"
     elif base_para_redutor <= 7350.00:
         # Redutor decrescente
@@ -266,15 +324,12 @@ def calc_irrf_detalhado(rendimento_bruto: float, inss: float, deps: int) -> dict
     # -----------------------------
     irrf_final = max(0.0, round(irrf_antes_reducao - redutor, 2))
 
-    # -----------------------------
-    # 7. Memória de Auditoria (igual ao Fortes)
-    # -----------------------------
     return {
         "valor": irrf_final,
         "memoria": {
             "tipo": "IRRF 2026 - Fortes",
             "variaveis": [
-                {"nome": "Base IRRF", "valor": f"R$ {rendimento_bruto:,.2f}"},
+                {"nome": "Base IRRF", "valor": f"R$ {bruto_display:,.2f}"},
                 {"nome": "INSS", "valor": f"R$ {inss:,.2f}"},
                 {"nome": "Dependentes", "valor": deps},
                 {
@@ -288,7 +343,7 @@ def calc_irrf_detalhado(rendimento_bruto: float, inss: float, deps: int) -> dict
                     "valor": f"R$ {irrf_parcial:,.2f}",
                 },
                 {
-                    "nome": "Dedução Fixa (R$ 908,73)",
+                    "nome": "Dedução Fixa",
                     "valor": f"R$ -{DEDUCAO_FIXA:,.2f}",
                 },
                 {
@@ -296,7 +351,7 @@ def calc_irrf_detalhado(rendimento_bruto: float, inss: float, deps: int) -> dict
                     "valor": f"R$ {irrf_antes_reducao:,.2f}",
                 },
                 {
-                    "nome": "Base p/ Redutor (Bruta+INSS)",
+                    "nome": "Base p/ Redutor (Rendimentos Tributáveis)",
                     "valor": f"R$ {base_para_redutor:,.2f}",
                 },
                 {"nome": "Faixa Redutor", "valor": faixa_redutor},
@@ -312,10 +367,22 @@ def calc_irrf_detalhado(rendimento_bruto: float, inss: float, deps: int) -> dict
 # ============================================================================
 
 
-def calc_fgts(base: float, is_aprendiz: bool = False) -> float:
+def calc_fgts(base: float, is_aprendiz: bool = False):
     """Calcula FGTS: 8% para funcionários normais, 2% para aprendizes."""
     aliq = 0.02 if is_aprendiz else 0.08
-    return truncate(base * aliq, 2)
+    valor = truncate(base * aliq, 2)
+    return {
+        "valor": valor,
+        "memoria": {
+            "tipo": "FGTS Mensal",
+            "variaveis": [
+                {"nome": "Base de Cálculo", "valor": f"R$ {base:,.2f}"},
+                {"nome": "Categoria", "valor": "Aprendiz" if is_aprendiz else "Normal"},
+                {"nome": "Alíquota", "valor": f"{aliq*100:.0f}%"},
+            ],
+            "resultado": f"R$ {valor:,.2f}",
+        },
+    }
 
 
 # ============================================================================
@@ -332,11 +399,24 @@ def calc_he_generica(
     return round(salario_hora * fator * horas, 2)
 
 
-def calc_adicional_noturno(
-    salario_base: float, horas: float, divisor: float = 220.0
-) -> float:
+def calc_adicional_noturno(salario_base: float, horas: float, divisor: float = 220.0):
     """Calcula Adicional Noturno (20% sobre o salário base)."""
-    return round((salario_base / divisor) * 0.20 * horas, 2)
+    val_hora = salario_base / divisor
+    valor = round(val_hora * 0.20 * horas, 2)
+    return {
+        "valor": valor,
+        "memoria": {
+            "tipo": "Adicional Noturno (20%)",
+            "variaveis": [
+                {"nome": "Salário Base", "valor": f"R$ {salario_base:,.2f}"},
+                {"nome": "Divisor", "valor": f"{divisor}h"},
+                {"nome": "Valor Hora", "valor": f"R$ {val_hora:,.2f}"},
+                {"nome": "Horas Noturnas", "valor": f"{horas:.2f}h"},
+                {"nome": "Percentual", "valor": "20%"},
+            ],
+            "resultado": f"R$ {valor:,.2f}",
+        },
+    }
 
 
 def calc_periculosidade(salario: float) -> float:
@@ -354,11 +434,23 @@ def calc_insalubridade(
     return round(salario_minimo * grau, 2)
 
 
-def calc_dsr(valor_variavel: float, uteis: int, dsr: int) -> float:
-    """Calcula Descanso Semanal Remunerado sobre valores variáveis."""
-    if uteis == 0:
-        return 0.0
-    return round((valor_variavel / uteis) * dsr, 2)
+def calc_dsr(valor_variaveis, dias_uteis, dias_dsr):
+    if dias_uteis == 0:
+        return {"valor": 0.0, "memoria": None}
+
+    valor = round((valor_variaveis / dias_uteis) * dias_dsr, 2)
+    return {
+        "valor": valor,
+        "memoria": {
+            "tipo": "DSR (Reflexo)",
+            "variaveis": [
+                {"nome": "Total Variáveis", "valor": f"R$ {valor_variaveis:,.2f}"},
+                {"nome": "Dias Úteis", "valor": str(dias_uteis)},
+                {"nome": "Dias DSR (Dom/Fer)", "valor": str(dias_dsr)},
+            ],
+            "resultado": f"R$ {valor:,.2f}",
+        },
+    }
 
 
 def calc_salario_familia(remuneracao: float, filhos: int) -> float:
@@ -378,3 +470,12 @@ def calc_vale_transporte(salario: float, percentual: float = 0.06) -> float:
 def calc_falta(salario_base: float, qtd_dias: float) -> float:
     """Calcula desconto de falta em dias."""
     return round((float(salario_base) / 30) * float(qtd_dias), 2)
+
+
+def calc_vt_aprendiz(salario_base: float, dias_trabalhados: int) -> float:
+    """
+    Calcula VT Proporcional para Aprendiz (Código 323).
+    Geralmente 6% sobre o salário proporcional aos dias trabalhados.
+    """
+    base_prop = (salario_base / 30) * dias_trabalhados
+    return round(base_prop * 0.06, 2)

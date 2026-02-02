@@ -60,19 +60,31 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
             -- Carga horária real
             ISNULL(SEP.HorasMes, 220) AS CargaHoraria,
             
-            -- ✅ CORREÇÃO: Busca TODOS os dependentes (filtraremos no código se necessário)
-            -- Caso a coluna IRRF também não exista, contamos todos
+            -- (SELECT COUNT(*) 
+            --  FROM DEP (NOLOCK) 
+            --  WHERE DEP.EMP_Codigo = EPG.EMP_Codigo 
+            --    AND DEP.EPG_Codigo = EPG.Codigo
+            --    AND DEP.TB_TIP_DEP_CODIGO IN ('03', '04', '06') -- Filhos/Enteados/Menor Tutelado
+            --    AND (DEP.DependDtFinal IS NULL OR DEP.DependDtFinal >= GETDATE())
+            -- ) AS DependentesIRRF,
+            
+            -- Simplificação conforme pedido: Apenas Filtro de Tipo e Confiando no Fortes
             (SELECT COUNT(*) 
              FROM DEP (NOLOCK) 
              WHERE DEP.EMP_Codigo = EPG.EMP_Codigo 
-               AND DEP.EPG_Codigo = EPG.Codigo) AS DependentesIRRF,
+               AND DEP.EPG_Codigo = EPG.Codigo
+               AND DEP.TB_TIP_DEP_CODIGO IN ('03', '04')) AS DependentesIRRF,
             
-            -- Dependentes para salário família (coluna comprovada que existe)
+            -- Dependentes para salário família (Regra < 14 anos ou Inválido)
             (SELECT COUNT(*) 
              FROM DEP (NOLOCK) 
              WHERE DEP.EMP_Codigo = EPG.EMP_Codigo 
                AND DEP.EPG_Codigo = EPG.Codigo 
-               AND DEP.SalarioFamilia = 'S') AS DependentesSalarioFamilia,
+               AND DEP.TB_TIP_DEP_CODIGO IN ('03', '04')
+               AND (
+                   DATEDIFF(year, DEP.NascData, GETDATE()) < 14 
+                   OR DEP.IncapazTrabalho = 'S'
+               )) AS DependentesSalarioFamilia,
             
             -- Eventos
             EFP.EVE_Codigo AS Codigo,

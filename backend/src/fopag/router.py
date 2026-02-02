@@ -118,7 +118,7 @@ def run_database_audit(request: FopagRealAuditRequest):
                 "empresa": company_code,
                 "total_funcionarios": len(dados_folha),
                 "total_divergencias": len(
-                    [r for r in resultados if r["tem_divergencia"]]
+                    [r for r in resultados if r.get("tem_divergencia", False)]
                 ),
             },
             "divergencias": resultados,

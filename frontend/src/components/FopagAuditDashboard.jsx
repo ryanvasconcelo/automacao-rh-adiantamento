@@ -1,7 +1,7 @@
 // frontend/src/components/FopagAuditDashboard.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { Search, AlertTriangle, CheckCircle2, XCircle, FileText, Calculator, Hash, HelpCircle, ThumbsUp, ChevronLeft } from 'lucide-react';
+import { Search, AlertTriangle, CheckCircle2, XCircle, FileText, Calculator, Hash, HelpCircle, ThumbsUp, ChevronLeft, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { PageTransition, Card, SmartButton, CustomSelect, MonthYearPicker, Badge, Button, SmartLoading, Toggle, Input, CalculationModal } from './ui/Shared';
 import { StatCard } from './ui/StatCard';
 import jsPDF from 'jspdf';
@@ -27,6 +27,7 @@ export default function FopagAuditDashboard() {
     const [isApproved, setIsApproved] = useState(false);
 
     useEffect(() => {
+        console.log("FopagAuditDashboard v2.1 Loaded - Safe Filter Active");
         axios.get(`${API_URL}/audit/fopag/companies`)
             .then(res => setCompaniesList(res.data))
             .catch(() => setCompaniesList([{ id: 'JR', name: 'JR (Fallback)' }]));
@@ -126,11 +127,21 @@ export default function FopagAuditDashboard() {
     const formatMoney = (val) => val?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
     const filteredList = data?.divergencias.filter(f => {
-        const matchesSearch = f.nome.toLowerCase().includes(searchTerm.toLowerCase()) || f.matricula.includes(searchTerm);
-        if (!matchesSearch) return false;
-        if (filterMode === 'pending') return f.tem_divergencia;
-        if (filterMode === 'ok') return !f.tem_divergencia;
-        return true;
+        try {
+            if (!f) return false;
+            const nome = (f.nome || "").toString().toLowerCase();
+            const mat = (f.matricula || "").toString();
+            const term = (searchTerm || "").toString().toLowerCase();
+
+            const matchesSearch = nome.includes(term) || mat.includes(term);
+            if (!matchesSearch) return false;
+            if (filterMode === 'pending') return f.tem_divergencia;
+            if (filterMode === 'ok') return !f.tem_divergencia;
+            return true;
+        } catch (e) {
+            console.error("Erro no filtro:", e, f);
+            return false;
+        }
     });
 
     // --- CÁLCULO REAL DOS KPIS (USANDO TOTAIS DO BACKEND) ---
@@ -151,7 +162,8 @@ export default function FopagAuditDashboard() {
             }
 
             // FGTS ainda somamos dos itens pois não está no objeto totais padrão
-            const itemFgts = func.itens.find(i => i.evento === 'FGTS');
+            // FGTS ainda somamos dos itens pois não está no objeto totais padrão
+            const itemFgts = func.itens ? func.itens.find(i => i.evento === 'FGTS') : null;
             if (itemFgts) fgts += itemFgts.real;
         });
 
@@ -246,12 +258,37 @@ export default function FopagAuditDashboard() {
                                     </div>
                                     <div><p className="font-bold text-slate-800">{func.nome}</p><p className="text-xs text-slate-400 font-mono mt-0.5">MAT: {func.matricula}</p></div>
                                 </div>
+
+                                {/* Totais na Barra (Visíveis mesmo fechado) */}
+                                {func.totais && (
+                                    <div className="flex items-center gap-4 mr-6 hidden md:flex">
+                                        <div className="px-3 border-r border-slate-100 last:border-0 text-right">
+                                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Proventos</p>
+                                            <p className="font-mono font-bold text-emerald-600 text-xs">{formatMoney(func.totais.proventos)}</p>
+                                        </div>
+                                        <div className="px-3 border-r border-slate-100 last:border-0 text-right">
+                                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Descontos</p>
+                                            <p className="font-mono font-bold text-rose-500 text-xs">{formatMoney(func.totais.descontos)}</p>
+                                        </div>
+                                        <div className="px-3 border-r border-slate-100 last:border-0 text-right">
+                                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Líquido</p>
+                                            <p className="font-mono font-bold text-purple-700 text-xs">{formatMoney(func.totais.liquido)}</p>
+                                        </div>
+                                        <div className="px-3 border-r border-slate-100 last:border-0 text-right bg-slate-50/50 rounded-lg py-1">
+                                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Base IRRF</p>
+                                            <p className="font-mono font-bold text-slate-600 text-xs">{formatMoney(func.totais.base_irrf_oficial || 0)}</p>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="flex items-center gap-4">
                                     {func.tem_divergencia && !isApproved && <span className="text-xs font-bold text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">{func.itens.filter(i => i.status === 'ERRO').length} Erros</span>}
                                 </div>
                             </div>
                             {expandedRows[func.matricula] && (
                                 <div className="bg-slate-50/50 p-6 border-t border-slate-100 shadow-inner">
+
+                                    {/* Tabela de Eventos */}
                                     <table className="w-full text-xs">
                                         <thead className="bg-slate-50 text-slate-500 uppercase font-bold">
                                             <tr>
@@ -267,18 +304,25 @@ export default function FopagAuditDashboard() {
                                             {func.itens.map((item, idx) => (
                                                 <tr key={idx} className={item.status === "ERRO" ? "bg-rose-50/50" : ""}>
                                                     <td className="px-4 py-3">
-                                                        <div className="flex flex-col">
-                                                            {item.memoria ? (
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); setSelectedMemory(item.memoria); }}
-                                                                    className="font-medium text-blue-600 hover:text-blue-800 hover:underline text-left transition-colors flex items-center gap-1"
-                                                                >
-                                                                    {item.evento} <HelpCircle size={12} className="opacity-50" />
-                                                                </button>
-                                                            ) : (
-                                                                <span className="font-medium text-slate-700">{item.evento}</span>
-                                                            )}
-                                                            <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5"><Hash size={10} /> {item.codigo}</div>
+                                                        <div className="flex items-start gap-3">
+                                                            {/* Ícone Indicador à Esquerda */}
+                                                            <div className={`mt-1 ${item.tipo_evento === 'P' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                                {item.tipo_evento === 'P' ? <ArrowUpRight size={18} strokeWidth={2.5} /> : <ArrowDownRight size={18} strokeWidth={2.5} />}
+                                                            </div>
+
+                                                            <div className="flex flex-col">
+                                                                {item.memoria ? (
+                                                                    <button
+                                                                        onClick={(e) => { e.stopPropagation(); setSelectedMemory(item.memoria); }}
+                                                                        className="font-medium text-blue-600 hover:text-blue-800 hover:underline text-left transition-colors flex items-center gap-1"
+                                                                    >
+                                                                        {item.evento} <HelpCircle size={12} className="opacity-50" />
+                                                                    </button>
+                                                                ) : (
+                                                                    <span className="font-medium text-slate-700">{item.evento}</span>
+                                                                )}
+                                                                <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5"><Hash size={10} /> {item.codigo}</div>
+                                                            </div>
                                                         </div>
                                                     </td>
                                                     <td className="px-4 py-3 text-right font-mono text-slate-400">{item.base > 0 ? formatMoney(item.base) : '-'}</td>
