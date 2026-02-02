@@ -15,19 +15,20 @@ def dict_factory(cursor, row):
 
 
 def get_folha_id(empresa_codigo: str, mes: int, ano: int) -> Optional[int]:
-    """Busca a FOLHA MENSAL (Folha=2) mais recente (maior Seq) do mês/ano solicitado."""
+    """Busca o ID (Sequencial) da Folha Mensal."""
+    ano_mes = f"{ano}{mes:02d}"
     sql = """
-        SELECT MAX(FOL.Seq) as Seq
+        SELECT TOP 1 FOL.Seq
         FROM FOL (NOLOCK)
-        WHERE FOL.EMP_Codigo = %s 
-          AND YEAR(FOL.DtCalculo) = %s
-          AND MONTH(FOL.DtCalculo) = %s
-          AND FOL.Folha = 2
+        INNER JOIN FPG (NOLOCK) ON FOL.EMP_Codigo = FPG.EMP_Codigo AND FOL.Seq = FPG.FOL_Seq
+        WHERE FOL.EMP_Codigo = %s AND FPG.AnoMes = %s
+          AND FOL.Folha = 2 AND FPG.Tipo IN (1, 4)
+        ORDER BY FOL.Seq DESC
     """
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(sql, (empresa_codigo, ano, mes))
+            cursor.execute(sql, (empresa_codigo, ano_mes))
             row = cursor.fetchone()
             if row:
                 data = dict_factory(cursor, row)
