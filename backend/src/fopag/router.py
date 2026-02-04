@@ -93,6 +93,24 @@ def run_database_audit(request: FopagRealAuditRequest):
         dados_folha = data_fetcher.fetch_payroll_data(
             empresa_codigo=str(fortes_id), folha_seq=folha_seq
         )
+
+        # 3.1 Busca Férias (CORREÇÃO: Injetar eventos de férias)
+        # O auditor precisa ver os eventos de férias para somar na Base INSS
+        ferias_map = data_fetcher.get_ferias_details(
+            empresa_codigo=str(fortes_id), mes=request.month, ano=request.year
+        )
+
+        # Merge de Férias nos Funcionários
+        if ferias_map:
+            print(f"[Router] Injetando Férias em {len(ferias_map)} funcionários.")
+            for func in dados_folha:
+                mat = func.get("matricula")
+                if mat and mat in ferias_map:
+                    evts_ferias = ferias_map[mat]
+                    # Adiciona à lista de eventos
+                    func["eventos"].extend(evts_ferias)
+                    print(f"  -> {mat}: +{len(evts_ferias)} eventos de férias.")
+
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Erro ao buscar dados da folha: {str(e)}"

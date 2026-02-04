@@ -42,13 +42,6 @@ def get_folha_id(empresa_codigo: str, mes: int, ano: int) -> Optional[int]:
 def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
     """
     Busca TODOS os eventos da folha com informações completas.
-
-    ✅ CORREÇÃO: Agora busca TODOS os eventos, incluindo:
-    - Gratificações
-    - Pensões
-    - Adiantamentos
-    - Etapas
-    - Tudo que estiver na folha
     """
     sql = """
         SELECT 
@@ -60,22 +53,12 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
             -- Carga horária real
             ISNULL(SEP.HorasMes, 220) AS CargaHoraria,
             
-            -- (SELECT COUNT(*) 
-            --  FROM DEP (NOLOCK) 
-            --  WHERE DEP.EMP_Codigo = EPG.EMP_Codigo 
-            --    AND DEP.EPG_Codigo = EPG.Codigo
-            --    AND DEP.TB_TIP_DEP_CODIGO IN ('03', '04', '06') -- Filhos/Enteados/Menor Tutelado
-            --    AND (DEP.DependDtFinal IS NULL OR DEP.DependDtFinal >= GETDATE())
-            -- ) AS DependentesIRRF,
-            
-            -- Simplificação conforme pedido: Apenas Filtro de Tipo e Confiando no Fortes
             (SELECT COUNT(*) 
              FROM DEP (NOLOCK) 
              WHERE DEP.EMP_Codigo = EPG.EMP_Codigo 
                AND DEP.EPG_Codigo = EPG.Codigo
                AND DEP.TB_TIP_DEP_CODIGO IN ('03', '04')) AS DependentesIRRF,
             
-            -- Dependentes para salário família (Regra < 14 anos ou Inválido)
             (SELECT COUNT(*) 
              FROM DEP (NOLOCK) 
              WHERE DEP.EMP_Codigo = EPG.EMP_Codigo 
@@ -102,12 +85,11 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
         INNER JOIN EPG (NOLOCK) ON EFO.EMP_Codigo = EPG.EMP_Codigo 
                                 AND EFO.EPG_Codigo = EPG.Codigo
         
-        -- Carga horária vigente
         LEFT JOIN SEP (NOLOCK) ON EFO.EMP_Codigo = SEP.EMP_Codigo 
                               AND EFO.EPG_Codigo = SEP.EPG_Codigo 
                               AND EFO.SEP_Data = SEP.Data
 
-        -- ✅ EVENTOS (SEM FILTRO DE VALOR > 0, PARA PEGAR TUDO)
+        -- Usando Join Composto Correto
         LEFT JOIN EFP (NOLOCK) ON EFO.EMP_Codigo = EFP.EMP_Codigo 
                               AND EFO.FOL_Seq = EFP.EFO_FOL_Seq 
                               AND EFO.EPG_Codigo = EFP.EFO_EPG_Codigo
@@ -116,8 +98,6 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
         
         WHERE EFO.EMP_Codigo = %s 
           AND EFO.FOL_Seq = %s
-          -- ✅ REMOVIDO FILTRO: AND EFP.Valor > 0
-          -- Agora pega TODOS os eventos, mesmo os com valor 0
         ORDER BY EPG.Nome, EFP.EVE_Codigo
     """
 
@@ -152,7 +132,6 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                         "cargo": cargo_detectado,
                         "carga_horaria": float(row["CargaHoraria"]),
                         "tipo_contrato": vinculo,
-                        # ✅ CORREÇÃO: Dependentes IRRF (não Salário Família)
                         "dependentes": int(row["DependentesIRRF"] or 0),
                         "dependentes_salario_familia": int(
                             row["DependentesSalarioFamilia"] or 0
@@ -163,11 +142,9 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                         "eventos_calculados_fortes": {},
                     }
 
-                # Se não houver evento, pula
                 if not row.get("Codigo"):
                     continue
 
-                # Normalização do código
                 try:
                     codigo_limpo = str(int(row["Codigo"]))
                 except:
@@ -177,7 +154,6 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
                 referencia = float(row["Referencia"]) if row["Referencia"] else 0.0
                 tipo_evento = row["Tipo"]
 
-                # Incidências
                 def check_incidence(val):
                     try:
                         return int(val) > 0
@@ -225,3 +201,111 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
     except Exception as e:
         logger.error(f"Erro fetch_payroll_data: {e}")
         raise
+
+
+def get_ferias_details(empresa_codigo: str, ano: int, mes: int) -> Dict[str, List[Dict]]:
+    """
+    Busca eventos de Férias via tabela FER.
+    Critério: Férias gozadas no mês de referência (Inicio ou Fim no mês).
+    Usa joins explícitos via chaves compostas (EFO_FOL_SEQ, EFO_EPG_CODIGO).
+    """
+    # Ajuste Fino conforme Logs: LEFT JOINs + EVE.InfProvDesc + Filtros Robustos
+    sql = """
+        SELECT 
+            FER.EFO_EPG_Codigo AS Matricula, 
+            EVE.Codigo AS EveCodigo,
+            EVE.NomeApr AS Descricao,
+            EVE.InfProvDesc AS Tipo, 
+            EFP.Valor AS Valor,
+            EFP.Referencia AS Referencia,
+            EVE.IndicativoCPMensalFerias AS IncideINSS,
+            EVE.IndicativoIRRFMensal AS IncideIRRF,
+            EVE.IndicativoFGTSMensalFerias AS IncideFGTS,
+            
+            -- Identificação Semântica do INSS (Base vs Desconto)
+            CASE 
+                WHEN EVE.Codigo = '602' THEN 'BASE_INSS'
+                -- Se for Desconto (2) e tiver INSS no nome (mas não for o 310 da folha normal, que aqui seria outro código)
+                WHEN EVE.InfProvDesc = '2' AND (EVE.Nome LIKE '%INSS%' OR EVE.NomeApr LIKE '%INSS%') 
+                    THEN 'DESCONTO_INSS'
+                ELSE 'OUTRO'
+            END AS TipoEventoINSS,
+            
+            FER.DtGozoInicial,
+            FER.DtGozoFinal
+        FROM FER (NOLOCK)
+        
+        LEFT JOIN EFO (NOLOCK) ON FER.EMP_CODIGO = EFO.EMP_CODIGO 
+                                AND FER.EFO_FOL_SEQ = EFO.FOL_SEQ 
+                                AND FER.EFO_EPG_CODIGO = EFO.EPG_CODIGO
+        
+        LEFT JOIN FOL (NOLOCK) ON EFO.EMP_CODIGO = FOL.EMP_CODIGO 
+                                AND EFO.FOL_SEQ = FOL.SEQ
+        
+        LEFT JOIN EFP (NOLOCK) ON EFO.EMP_CODIGO = EFP.EMP_CODIGO 
+                                AND EFO.EPG_CODIGO = EFP.EFO_EPG_CODIGO 
+                                AND EFO.FOL_SEQ = EFP.EFO_FOL_SEQ
+        
+        LEFT JOIN EVE (NOLOCK) ON EFP.EMP_CODIGO = EVE.EMP_CODIGO 
+                                AND EFP.EVE_CODIGO = EVE.CODIGO
+        
+        WHERE FER.EMP_CODIGO = %s
+          -- Lógica de Overlap: Pega qualquer férias que toque no mês de referência
+          AND FER.DtGozoInicial <= %s 
+          AND FER.DtGozoFinal >= %s
+          
+          -- Garante que pegamos dados de FOLHA válida (4=Férias, 5=Compl, 20=RescComp)
+          AND (FOL.FOLHA = 4 OR FOL.FOLHA = 5 OR FOL.FOLHA = 20)
+          
+          -- Filtra apenas Proventos (1) e Descontos (2) para evitar lixo
+          AND EVE.InfProvDesc IN (1, 2)
+          AND EFP.Valor > 0
+          
+        ORDER BY FER.EFO_EPG_CODIGO, EVE.CODIGO
+    """
+    
+    import calendar
+    from datetime import date
+    last_day_val = calendar.monthrange(ano, mes)[1]
+    dt_ini_mes = date(ano, mes, 1)
+    dt_fim_mes = date(ano, mes, last_day_val)
+
+    try:
+        data_map = {}
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            print(f"[DEBUG SQL] Buscando Férias (v3 - InfProvDesc): Emp={empresa_codigo} Overlap [{dt_ini_mes} a {dt_fim_mes}]")
+            cursor.execute(sql, (str(empresa_codigo), dt_fim_mes, dt_ini_mes))
+            rows = cursor.fetchall()
+            print(f"[DEBUG SQL] Rows encontradas: {len(rows)}")
+            
+            for row in rows:
+                d = dict_factory(cursor, row)
+                mat = str(d["Matricula"]).strip()
+                
+                evt = {
+                    "codigo": str(d["EveCodigo"]),
+                    "descricao": str(d["Descricao"]).strip() + " (Férias)",
+                    "tipo": d["Tipo"],
+                    "valor": float(d["Valor"]),
+                    "referencia": float(d["Referencia"]) if d["Referencia"] else 0.0,
+                    "tipo_inss": d["TipoEventoINSS"], # Novo Campo
+                    "incidencias": {
+                        "inss": int(d["IncideINSS"] or 0) > 0,
+                        "irrf": int(d["IncideIRRF"] or 0) > 0,
+                        "fgts": int(d["IncideFGTS"] or 0) > 0
+                    },
+                    "origem": "FERIAS",
+                    "data_ferias": f"{d['DtGozoInicial']} a {d['DtGozoFinal']}",
+                    "dt_inicio": d['DtGozoInicial'],
+                    "dt_fim": d['DtGozoFinal']
+                }
+                
+                if mat not in data_map:
+                    data_map[mat] = []
+                data_map[mat].append(evt)
+                
+        return data_map
+    except Exception as e:
+        logger.error(f"Erro get_ferias_details: {e}")
+        return {}

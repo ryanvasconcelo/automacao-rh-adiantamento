@@ -29,7 +29,7 @@ CODIGOS_IGNORAR_AUDITORIA = [
     "900", "901", "902", "903", "904", "919",
     # "920", # REMOVIDO: Gratificação é verba financeira
     # "922", # REMOVIDO: Pensão Alimentícia
-    "946", "947", "948", "949", "998", "999",
+    "947", "948", "949", "998", "999",
 ]
 
 
@@ -169,6 +169,7 @@ def run_fopag_audit(
         
         # Totalizador de Pensão Alimentícia
         total_pensao_alimenticia = D("0")
+        total_consignados = D("0") # KPI
 
         lista_eventos = funcionario.get("eventos", [])
 
@@ -189,15 +190,83 @@ def run_fopag_audit(
         abatimentos_inss = []
 
         # --- 1. PRÉ-PROCESSAMENTO ---
+        import calendar
+        from datetime import date as date_cls
+        
+        # Acumulador específico para recalcular o INSS de Férias apenas sobre a parte da competência
+        nossa_base_ferias_inss = D("0")
+        tem_ferias_no_mes = False
+
         for ev in lista_eventos:
             cod = ev["codigo"]
             val = D(ev["valor"])
             nome_upper = ev["descricao"].upper()
             tipo_evento = int(ev["tipo"]) if str(ev["tipo"]).isdigit() else 0
+            
+            # --- LÓGICA DE PROPORCIONALIDADE FÉRIAS (Competência) ---
+            if ev.get("origem") == "FERIAS":
+                tem_ferias_no_mes = True
+                dt_ini = ev.get("dt_inicio")
+                dt_fim = ev.get("dt_fim")
+                
+                # Garante que são objetos date
+                try:
+                    if isinstance(dt_ini, str): 
+                        dt_ini = datetime.strptime(dt_ini[:10], "%Y-%m-%d").date()
+                    elif isinstance(dt_ini, datetime):
+                        dt_ini = dt_ini.date()
+                        
+                    if isinstance(dt_fim, str): 
+                        dt_fim = datetime.strptime(dt_fim[:10], "%Y-%m-%d").date()
+                    elif isinstance(dt_fim, datetime):
+                        dt_fim = dt_fim.date()
+                except:
+                    pass
+                
+                if dt_ini and dt_fim:
+                    # Datas da Competência Atual
+                    last_day_mes = calendar.monthrange(ano, mes)[1]
+                    comp_ini = date_cls(ano, mes, 1)
+                    comp_fim = date_cls(ano, mes, last_day_mes)
+                    
+                    # Interseção
+                    inicio_inter = max(dt_ini, comp_ini)
+                    fim_inter = min(dt_fim, comp_fim)
+                    
+                    if inicio_inter <= fim_inter:
+                        dias_no_mes = (fim_inter - inicio_inter).days + 1
+                        dias_totais_ferias = (dt_fim - dt_ini).days + 1
+                        
+                        if dias_totais_ferias > 0:
+                            fator = Decimal(dias_no_mes) / Decimal(dias_totais_ferias)
+                            
+                            # Aplica o fator apenas se for menor que 1 (proporcional) e maior que 0
+                            if 0 < fator < 1:
+                                val_original = val
+                                # Importante: Usar precisão boa antes do arredondamento final
+                                val = val_original * fator
+                                # Arredondamos aqui pois a base INSS mensal considera a parcela bruta arredondada
+                                val = D(money_round(val)) 
+                                
+                                # Atualiza descrição para visibilidade do rateio
+                                ev["descricao"] = f"{ev['descricao']} ({dias_no_mes}/{dias_totais_ferias}d)"
+                                ev["valor"] = float(val) # Atualiza visualmente também para bater com a memória
+            
+            # Acumula Base de Férias da Competência (Pro-rata já aplicado acima)
+            if ev.get("origem") == "FERIAS" and ev.get("incidencias", {}).get("inss", False) and val > 0:
+                 nossa_base_ferias_inss += val
 
             # Captura INSS já descontado (ex: de Férias)
             # Geralmente são descontos (tipo 2 ou 3) com nome "INSS" que não são o 310
-            if cod != "310" and "INSS" in nome_upper and tipo_evento in [2, 3]:
+            # Agora suportamos a flag explícita "tipo_inss" vinda do fetcher de férias
+            is_desconto_inss_ferias = ev.get("tipo_inss") == "DESCONTO_INSS"
+            
+            # SE for desconto de INSS de Férias, IGNORAMOS aqui.
+            # Vamos recalcular o valor exato correspondente à base proporcional no final do loop.
+            if is_desconto_inss_ferias:
+                continue
+
+            if (cod != "310" and "INSS" in nome_upper and tipo_evento in [2, 3]):
                 abatimentos_inss.append({"nome": ev["descricao"], "valor": float(val)})
                 continue
 
@@ -216,9 +285,18 @@ def run_fopag_audit(
                     salario_contratual_cheio = val
                 continue
 
-            if cod in CODIGOS_IGNORAR_AUDITORIA or cod in ["310", "311", "605", "300"]:
-                 # Ignora INSS, IRRF, FGTS, Adiantamento (processados no final ou separadamente)
+            # --- CORREÇÃO: FÉRIAS APENAS COMPÕEM BASE, NÃO APARECEM VISUALMENTE ---
+            if ev.get("origem") == "FERIAS":
+                # Apenas acumula nas bases para cálculo de impostos, mas não exibe na tabela
+                inc = ev.get("incidencias", {})
+                if inc.get("inss"): nossa_base_inss += val
+                if inc.get("irrf"): nossa_base_irrf += val
+                if inc.get("fgts"): nossa_base_fgts += val
                 continue
+
+            if cod in CODIGOS_IGNORAR_AUDITORIA or cod in ["310", "311", "605"]:
+                 # Ignora INSS, IRRF, FGTS (processados no final ou separadamente)
+                 continue
 
             # Classificação
             # Salário Base Comum: 11, 001, 1, 011
@@ -249,6 +327,10 @@ def run_fopag_audit(
                 eventos_faltas.append(ev)
             elif ("DSR" in nome_upper or "DESCANSO" in nome_upper) and tipo_evento == 1:
                 eventos_dsr.append(ev)
+            elif ("ADIANTAMENTO" in nome_upper or "COMPENSA" in nome_upper) or "CONSIGNADO" in nome_upper:
+                eventos_outros_descontos.append(ev)
+            elif cod == "323" or "TRANSPORTE" in nome_upper:
+                eventos_outros_descontos.append(ev)
             else:
                 # Catch-all para Proventos (Tipo 0 ou 1)
                 # Assumindo que 0=Fixo, 1=Variável, 2/3=Desconto?
@@ -258,12 +340,23 @@ def run_fopag_audit(
                 else:
                     eventos_outros_descontos.append(ev)
 
+        # --- PÓS-PROCESSAMENTO ---
+        # Recalcula INSS de Férias Proporcional (Faixa Correta)
+        if tem_ferias_no_mes and nossa_base_ferias_inss > 0:
+             res_inss_ferias = calculations.calc_inss_progressivo_2026(nossa_base_ferias_inss)
+             val_inss_ferias_prop = res_inss_ferias["valor"]
+             if val_inss_ferias_prop > 0:
+                 abatimentos_inss.append({
+                     "nome": f"INSS Férias (Recalc. Base {nossa_base_ferias_inss})", 
+                     "valor": float(val_inss_ferias_prop)
+                 })
+
         # =========================================================================
         # ACUMULADORES INTELIGENTES (DINÂMICOS VIA BANCO DE DADOS)
         # =========================================================================
 
         def processar_acumuladores(ev, valor, operacao="soma"):
-            nonlocal nossa_base_inss, nossa_base_irrf, nossa_base_fgts, total_pensao_alimenticia
+            nonlocal nossa_base_inss, nossa_base_irrf, nossa_base_fgts, total_pensao_alimenticia, total_consignados
 
             # ✅ AGORA USAMOS AS FLAGS VINDAS DO BANCO (EVE.Indicativo...)
             # O data_fetcher já retorna isso convertido em boolean
@@ -285,6 +378,7 @@ def run_fopag_audit(
             # Mesmo que o banco diga que sim (erro de cadastro comum), não devemos abater.
             if cod in ["943", "940", "941"] or "CONSIGNADO" in nome_upper:
                 inc_fgts = False
+                total_consignados += val # Sum for Dashboard KPI
 
             # --- PENSÃO ALIMENTÍCIA (DEDUÇÃO) ---
             # Identificação genérica por nome ou código comum, mas flexível
@@ -300,16 +394,19 @@ def run_fopag_audit(
             # Então precisamos ter o valor separado.)
             
             if operacao == "subtrai" and is_pensao:
-                # O evento de pensão geralmente NÃO tem flag de incidência de IRRF marcada para *reduzir* a base diretamente na soma,
-                # ele é uma dedução legal posterior. 
-                # Mas se o cadastro marcar IncideIRRF=True num desconto, matematicamente reduz a base.
-                # Vamos forçar a lógica correta de acumular para dedução explícita.
-                total_pensao_alimenticia += valor
+                # Pensão Alimentícia: Se o evento tiver incidência de IRRF marcada como True, ele reduzirá a base 'nossa_base_irrf' nativamente abaixo.
+                # Acumulamos em total_pensao_alimenticia apenas para exibição/memória se necessário, ou para deduzir DEPOIS caso inc_irrf seja False.
+                # O usuário pediu "faca os valores incidirem na base".
+                # Se confiarmos no banco, deixamos inc_irrf como veio. Se veio False e deveria incidir, forçamos True?
+                # Geralmente Pensão É dedutível. Vamos forçar True para garantir redução da base.
+                inc_irrf = True 
                 
-                # Para não deduzir duas vezes (se a flag estiver true), anulamos a flag aqui e tratamos via total_pensao
-                inc_irrf = False 
+                # Zera outros impostos que pensão não abate (INSS/FGTS)
                 inc_inss = False
                 inc_fgts = False
+                
+                # Acumula para controle
+                total_pensao_alimenticia += valor
 
             # --- LISTA NEGRA DE PROVENTOS (Bloqueia ganho isento mesmo se flag=True no banco?) ---
             # Se confiamos no banco, não deveríamos ter lista negra. 
@@ -552,6 +649,9 @@ def run_fopag_audit(
             
             # --- CÁLCULO PREFERENCIAL (NOSSA BASE CALCULADA) ---
             # Usamos nossa base detalhada para gerar a memória completa estilo Fortes
+            # Definição da Base Final a ser carregada para o IRRF
+            base_inss_final_utilizada = nossa_base_inss 
+
             res_inss_nossa = calculations.calc_inss_progressivo_2026(
                 float(nossa_base_inss), 
                 detalhes_base=detalhes_base_inss,
@@ -569,9 +669,9 @@ def run_fopag_audit(
                 if abs(val_inss_banco - inss_real) < 0.10:
                      inss_esp = val_inss_banco
                      formula_inss = "INSS Progressivo 2026 (Base Banco)"
+                     base_inss_final_utilizada = base_inss_banco  # <--- CRUCIAL: Ganhou a Base Banco
                      
                      # Tenta usar a memória detalhada se a nossa base bater com a do banco
-                     # Isso garante que a UI mostre a composição bonita estilo Fortes mesmo validando pela base oficial
                      val_inss_nossa = D(res_inss_nossa["valor"])
                      if abs(val_inss_nossa - val_inss_banco) < 0.10:
                          formula_inss = "INSS Progressivo 2026 (Base Auditoria Detalhada)"
@@ -611,14 +711,24 @@ def run_fopag_audit(
         irrf_real = D(next((e["valor"] for e in lista_eventos if e["codigo"] == "311"), 0))
         
         # Deduz pensão da base
-        base_irrf_efetiva = nossa_base_irrf 
+        # Como forçamos inc_irrf=True para pensão, 'nossa_base_irrf' JÁ ESTÁ deduzida da pensão.
+        # Para a função calc_irrf_detalhado mostrar a memória bonita (Base Bruta - Pensão), 
+        # passamos a base "reconstituída" (com pensão somada de volta) e passamos o valor da pensão para ela deduzir.
+        
+        base_irrf_efetiva = nossa_base_irrf + total_pensao_alimenticia 
+        
         if base_irrf_efetiva > 0:
-            bruto_nossa = base_irrf_efetiva - total_pensao_alimenticia
-            res_nossa = calculations.calc_irrf_detalhado(float(bruto_nossa), float(inss_real), dependentes)
+            # Passamos base CHEIA e a pensão separada
+            # E usamos a base_inss_final_utilizada como override do Redutor
+            res_nossa = calculations.calc_irrf_detalhado(
+                float(base_irrf_efetiva), float(inss_real), dependentes, 
+                pensao=float(total_pensao_alimenticia),
+                base_redutor_override=float(base_inss_final_utilizada)
+            )
             irrf_esp = D(res_nossa["valor"])
-            formula_irrf = f"Base Calculada: {bruto_nossa:.2f}"
+            formula_irrf = f"Base Calculada: {base_irrf_efetiva:.2f}"
             memoria_irrf = res_nossa["memoria"]
-            base_irrf_final = bruto_nossa
+            base_irrf_final = base_irrf_efetiva
         else:
             irrf_esp = D("0.00")
             formula_irrf = "Base Zerada"
@@ -630,12 +740,21 @@ def run_fopag_audit(
         
         if base_irrf_banco > 0:
              # Hipótese 1: Base 603 é Rendimento Bruto Tributável (Padrão)
-             res_banco_bruta = calculations.calc_irrf_detalhado(float(base_irrf_banco), float(inss_real), dependentes)
+             res_banco_bruta = calculations.calc_irrf_detalhado(
+                 float(base_irrf_banco), float(inss_real), dependentes,
+                 pensao=float(total_pensao_alimenticia),
+                 base_redutor_override=float(base_inss_final_utilizada)
+             )
              irrf_banco_bruta = D(res_banco_bruta["valor"])
              
              # Hipótese 2: Base 603 já é Base Líquida (Ex: BC IRRF L no PDF)
              # Passamos INSS/Deps para que a função possa reconstituir a Base Bruta para o Redutor
-             res_banco_liq = calculations.calc_irrf_detalhado(float(base_irrf_banco), float(inss_real), dependentes, is_net=True)
+             res_banco_liq = calculations.calc_irrf_detalhado(
+                 float(base_irrf_banco), float(inss_real), dependentes, 
+                 pensao=float(total_pensao_alimenticia),
+                 is_net=True,
+                 base_redutor_override=float(base_inss_final_utilizada)
+             )
              irrf_banco_liq = D(res_banco_liq["valor"])
 
              diff_nossa = abs(irrf_esp - irrf_real)
@@ -702,6 +821,7 @@ def run_fopag_audit(
             "proventos": float(total_proventos),
             "descontos": float(total_descontos),
             "liquido": float(total_proventos - total_descontos),
+            "consignados": float(total_consignados),
         }
 
     return list(auditoria_agrupada.values())
@@ -725,5 +845,4 @@ def money_round(valor_decimal):
     if not isinstance(valor_decimal, Decimal):
         valor_decimal = D(valor_decimal)
     return float(valor_decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-
 

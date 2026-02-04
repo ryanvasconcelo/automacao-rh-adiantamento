@@ -18,12 +18,21 @@ export const PageTransition = ({ children, className = "" }) => (
 );
 
 // --- SIDEBAR MODERNA (Fixed Z-Index & Rotate Arrow) ---
-export const CollapsibleSidebar = ({ activeModule, onChangeModule, isOpen, toggleSidebar }) => {
+export const CollapsibleSidebar = ({ activeModule, onChangeModule, isOpen, toggleSidebar, user = "admin", onLogout }) => {
     const menuItems = [
         { id: 'HOME', label: 'Início', icon: LayoutDashboard },
         { id: 'ADIANTAMENTO', label: 'Adiantamento', icon: CalendarClock },
         { id: 'FOPAG', label: 'Folha Mensal', icon: Calculator },
     ];
+
+    const USER_ROLES = {
+        'admin': { name: 'admin', role: 'eu' },
+        'isabela.caetano': { name: 'Isabela Caetano', role: 'Auditora' },
+        'joel.goncalves': { name: 'Joel Gonçalves', role: 'Auditor' },
+        'gisele.felix': { name: 'Gisele Félix', role: 'Gestora' }
+    };
+
+    const userInfo = USER_ROLES[user] || { name: user, role: 'Visitante' };
 
     return (
         <motion.aside
@@ -35,8 +44,8 @@ export const CollapsibleSidebar = ({ activeModule, onChangeModule, isOpen, toggl
                 <img src={logoProjecont} alt="GLF" className="w-10 h-10 rounded-lg shadow-lg shadow-blue-500/20 flex-shrink-0" />
                 {isOpen && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="whitespace-nowrap overflow-hidden">
-                        <h1 className="text-lg font-bold tracking-tight">GLF Auditoria</h1>
-                        <p className="text-[10px] text-slate-400 uppercase tracking-widest">Unified System</p>
+                        <h1 className="text-lg font-bold tracking-tight">GFS Auditoria</h1>
+                        <p className="text-[10px] text-slate-400 uppercase tracking-widest">Projecont DP Tools</p>
                     </motion.div>
                 )}
             </div>
@@ -74,6 +83,33 @@ export const CollapsibleSidebar = ({ activeModule, onChangeModule, isOpen, toggl
                     );
                 })}
             </nav>
+
+            {/* User Profile Section */}
+            <div className="p-4 border-t border-slate-800 bg-slate-950/30">
+                <div className={`flex items-center ${isOpen ? 'gap-3' : 'justify-center'}`}>
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-purple-900/40 flex-shrink-0">
+                        {userInfo.name.charAt(0)}
+                    </div>
+                    {isOpen && (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 overflow-hidden">
+                            <p className="text-sm font-semibold text-white truncate">{userInfo.name}</p>
+                            <p className="text-[10px] text-slate-400 font-medium truncate">{userInfo.role}</p>
+                        </motion.div>
+                    )}
+                </div>
+                {isOpen ? (
+                    <button
+                        onClick={onLogout}
+                        className="mt-4 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all text-xs font-bold uppercase tracking-wider border border-rose-500/20"
+                    >
+                        Sair do Sistema
+                    </button>
+                ) : (
+                    <button onClick={onLogout} className="mt-4 w-9 h-9 mx-auto flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all">
+                        <X size={16} />
+                    </button>
+                )}
+            </div>
         </motion.aside>
     );
 };
@@ -126,6 +162,13 @@ export const CustomSelect = ({ value, onChange, options, label, placeholder = "S
                                         placeholder="Filtrar..."
                                         value={search}
                                         onChange={(e) => setSearch(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && filteredOptions.length > 0) {
+                                                onChange(filteredOptions[0].value);
+                                                setIsOpen(false);
+                                                setSearch("");
+                                            }
+                                        }}
                                         className="w-full pl-8 pr-3 py-1.5 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400"
                                     />
                                 </div>
@@ -199,7 +242,7 @@ export const SmartButton = ({ onClick, isLoading, icon: Icon, children, classNam
 
     const variants = {
         primary: "bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200",
-        purple: "bg-purple-600 hover:bg-purple-700 text-white shadow-lg shadow-purple-200"
+        purple: "bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-200"
     };
 
     return (
@@ -225,12 +268,12 @@ export const SmartButton = ({ onClick, isLoading, icon: Icon, children, classNam
 
 export const SmartLoading = () => null; // Depreciado
 
-export const Card = ({ children, className = "", noPadding = false, onClick }) => (
+export const Card = ({ children, className = "", noPadding = false, onClick, overflowHidden = true }) => (
     <motion.div
         onClick={onClick}
         initial={{ opacity: 0, scale: 0.99 }}
         animate={{ opacity: 1, scale: 1 }}
-        className={`bg-white rounded-2xl border border-slate-200/60 shadow-sm transition-all duration-300 overflow-hidden ${className}`}
+        className={`bg-white rounded-2xl border border-slate-200/60 shadow-sm transition-all duration-300 ${overflowHidden ? 'overflow-hidden' : 'overflow-visible'} ${className}`}
     >
         <div className={noPadding ? "" : "p-6"}>{children}</div>
     </motion.div>

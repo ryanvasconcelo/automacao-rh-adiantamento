@@ -31,3 +31,9 @@ pytest==7.4.3
 pydantic-settings>=2.0.0
 
 holidays==0.28.3
+
+# Auth / Testing helpers
+httpx==0.24.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.8.1
+bcrypt==4.0.1

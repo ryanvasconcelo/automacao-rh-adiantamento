@@ -1,21 +1,49 @@
 // frontend/src/App.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MainLayout } from './components/layout/MainLayout';
 import FopagAuditDashboard from './components/FopagAuditDashboard';
 import AdiantamentoDashboard from './components/AdiantamentoDashboard';
+import Login from './components/Login';
 import { Activity, CheckCircle2, TrendingUp } from 'lucide-react';
 import { StatCard } from './components/ui/StatCard';
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState('admin');
   const [currentModule, setCurrentModule] = useState('HOME');
+
+  useEffect(() => {
+    // Check local or session storage
+    const token = localStorage.getItem('user_token') || sessionStorage.getItem('user_token');
+    if (token) {
+      try {
+        // Simple token decode (user:timestamp)
+        const decoded = atob(token).split(':')[0];
+        setCurrentUser(decoded);
+        setIsAuthenticated(true);
+      } catch (e) {
+        // Invalid token
+        handleLogout();
+      }
+    }
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('user_token');
+    sessionStorage.removeItem('user_token');
+    setIsAuthenticated(false);
+    setCurrentUser('');
+  };
+
+  if (!isAuthenticated) {
+    return <Login onLogin={(user) => { setIsAuthenticated(true); setCurrentUser(user); }} />;
+  }
 
   const renderContent = () => {
     switch (currentModule) {
       case 'FOPAG':
         return <FopagAuditDashboard />;
       case 'ADIANTAMENTO':
-        // A prop onBackToMenu não é mais necessária pois temos a Sidebar, 
-        // mas mantemos compatibilidade se o componente interno usar.
         return <AdiantamentoDashboard onBackToMenu={() => setCurrentModule('HOME')} />;
       default:
         return <HomeWelcome onNavigate={setCurrentModule} />;
@@ -23,7 +51,12 @@ function App() {
   };
 
   return (
-    <MainLayout activeModule={currentModule} onChangeModule={setCurrentModule}>
+    <MainLayout
+      activeModule={currentModule}
+      onChangeModule={setCurrentModule}
+      user={currentUser}
+      onLogout={handleLogout}
+    >
       {renderContent()}
     </MainLayout>
   );
@@ -48,9 +81,9 @@ const HomeWelcome = ({ onNavigate }) => (
         <StatCard title="Módulo Adiantamento" value="Auditoria Lote" icon={CalendarClock} color="blue" subtext="Dia 15 e 20" />
       </div>
       <div onClick={() => onNavigate('FOPAG')} className="cursor-pointer">
-        <StatCard title="Módulo Folha Mensal" value="Auditoria FOPAG" icon={Calculator} color="purple" subtext="Cálculos Complexos" />
+        <StatCard title="Módulo Folha Mensal" value="Auditoria FOPAG" icon={Calculator} color="purple" subtext="Folha mensal" />
       </div>
-      <StatCard title="Status do Sistema" value="Operacional" icon={Activity} color="green" subtext="v4.0.0 Stable" />
+      <StatCard title="Status do Sistema" value="Operacional" icon={Activity} color="green" subtext="v1.4.0 Stable" />
     </div>
 
     {/* Área de Novidades ou Avisos (Opcional) */}
@@ -65,8 +98,8 @@ const HomeWelcome = ({ onNavigate }) => (
             <CheckCircle2 size={14} className="text-green-600" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-slate-800">Cálculo de Consignado Ajustado</p>
-            <p className="text-sm text-slate-500">Agora o desconto do consignado respeita a proporcionalidade do valor líquido recebido.</p>
+            <p className="text-sm font-semibold text-slate-800">Cálculo de INSS Ajustado</p>
+            <p className="text-sm text-slate-500">Agora o desconto do INSS considera a tabela progressiva, cargo e o regime de recebimento (pró-labore/salário).</p>
           </div>
         </li>
         <li className="flex gap-4 items-start">
@@ -74,8 +107,8 @@ const HomeWelcome = ({ onNavigate }) => (
             <CheckCircle2 size={14} className="text-blue-600" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-slate-800">Unificação de Plataforma</p>
-            <p className="text-sm text-slate-500">FOPAG e Adiantamento agora operam no mesmo motor de processamento.</p>
+            <p className="text-sm font-semibold text-slate-800">Segurança de Plataforma</p>
+            <p className="text-sm text-slate-500">Agora o GFS conta com sistema de autenticação de usuário, garantindo segurança e privacidade dos dados.</p>
           </div>
         </li>
       </ul>

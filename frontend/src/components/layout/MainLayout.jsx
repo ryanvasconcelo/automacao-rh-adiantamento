@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { CollapsibleSidebar } from '../ui/Shared';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export const MainLayout = ({ children, activeModule, onChangeModule }) => {
+export const MainLayout = ({ children, activeModule, onChangeModule, user, onLogout }) => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
     return (
@@ -13,6 +13,8 @@ export const MainLayout = ({ children, activeModule, onChangeModule }) => {
                 onChangeModule={onChangeModule}
                 isOpen={isSidebarOpen}
                 toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+                user={user}
+                onLogout={onLogout}
             />
 
             <motion.main

@@ -146,12 +146,12 @@ export default function FopagAuditDashboard() {
 
     // --- CÁLCULO REAL DOS KPIS (USANDO TOTAIS DO BACKEND) ---
     const financeMetrics = useMemo(() => {
-        if (!data) return { proventos: 0, descontos: 0, fgts: 0, liquido: 0 };
+        if (!data) return { proventos: 0, descontos: 0, consignados: 0, liquido: 0 };
 
         let proventos = 0;
         let descontos = 0;
         let liquido = 0;
-        let fgts = 0;
+        let consignados = 0;
 
         data.divergencias.forEach(func => {
             // Usa os totais calculados pelo backend para precisão
@@ -159,15 +159,11 @@ export default function FopagAuditDashboard() {
                 proventos += func.totais.proventos;
                 descontos += func.totais.descontos;
                 liquido += func.totais.liquido;
+                if (func.totais.consignados) consignados += func.totais.consignados;
             }
-
-            // FGTS ainda somamos dos itens pois não está no objeto totais padrão
-            // FGTS ainda somamos dos itens pois não está no objeto totais padrão
-            const itemFgts = func.itens ? func.itens.find(i => i.evento === 'FGTS') : null;
-            if (itemFgts) fgts += itemFgts.real;
         });
 
-        return { proventos, descontos, fgts, liquido };
+        return { proventos, descontos, consignados, liquido };
     }, [data]);
 
     if (view === 'SELECTION') {
@@ -177,7 +173,7 @@ export default function FopagAuditDashboard() {
                     <h2 className="text-3xl font-extrabold text-slate-900">Auditoria de Folha Mensal</h2>
                     <p className="text-slate-500 mt-2">Cálculo de impostos, benefícios e regras complexas.</p>
                 </div>
-                <Card className="shadow-xl shadow-purple-900/5 border-purple-100 p-8">
+                <Card className="shadow-xl shadow-purple-900/5 border-purple-100 p-8" overflowHidden={false}>
                     <div className="space-y-6">
                         <CustomSelect label="Empresa" value={company} onChange={setCompany} options={companiesList.map(c => ({ value: c.id, label: c.name }))} placeholder="Selecione a empresa..." searchable={true} />
                         <div className="grid grid-cols-1"><MonthYearPicker month={month} year={year} onMonthChange={setMonth} onYearChange={setYear} /></div>
@@ -195,10 +191,6 @@ export default function FopagAuditDashboard() {
             <div className="flex justify-between items-end">
                 <div>
                     <Button variant="ghost" onClick={() => setView('SELECTION')} icon={ChevronLeft} className="mb-2 -ml-2 text-purple-600">Nova Seleção</Button>
-                    <div className="flex items-center gap-6">
-                        <h2 className="text-3xl font-bold text-slate-900">Resultado da Análise</h2>
-                        <Toggle enabled={isApproved} onChange={setIsApproved} label={isApproved ? "Empresa Aprovada" : "Marcar como Conforme"} />
-                    </div>
                 </div>
                 <div className="flex gap-4">
                     <div className="relative">
@@ -219,9 +211,9 @@ export default function FopagAuditDashboard() {
                     <p className="text-xs text-slate-400 uppercase font-bold mb-1">Descontos Totais</p>
                     <p className="text-xl font-mono font-bold text-orange-500">{formatMoney(financeMetrics.descontos)}</p>
                 </Card>
-                <Card className="border-l-4 border-l-emerald-500">
-                    <p className="text-xs text-slate-400 uppercase font-bold mb-1">Total FGTS</p>
-                    <p className="text-xl font-mono font-bold text-emerald-600">{formatMoney(financeMetrics.fgts)}</p>
+                <Card className="border-l-4 border-l-red-500">
+                    <p className="text-xs text-slate-400 uppercase font-bold mb-1">Total Consignados</p>
+                    <p className="text-xl font-mono font-bold text-red-600">{formatMoney(financeMetrics.consignados)}</p>
                 </Card>
                 <Card className="border-l-4 border-l-purple-500">
                     <p className="text-xs text-slate-400 uppercase font-bold mb-1">Líquido a Pagar</p>
@@ -261,22 +253,18 @@ export default function FopagAuditDashboard() {
 
                                 {/* Totais na Barra (Visíveis mesmo fechado) */}
                                 {func.totais && (
-                                    <div className="flex items-center gap-4 mr-6 hidden md:flex">
-                                        <div className="px-3 border-r border-slate-100 last:border-0 text-right">
-                                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Proventos</p>
-                                            <p className="font-mono font-bold text-emerald-600 text-xs">{formatMoney(func.totais.proventos)}</p>
+                                    <div className="flex items-center divide-x divide-slate-100 border-l border-slate-100 ml-4 pl-4 hidden md:flex">
+                                        <div className="px-4 text-right min-w-[90px]">
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Proventos</p>
+                                            <p className="font-mono font-bold text-emerald-600 text-sm">{formatMoney(func.totais.proventos)}</p>
                                         </div>
-                                        <div className="px-3 border-r border-slate-100 last:border-0 text-right">
-                                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Descontos</p>
-                                            <p className="font-mono font-bold text-rose-500 text-xs">{formatMoney(func.totais.descontos)}</p>
+                                        <div className="px-4 text-right min-w-[90px]">
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Descontos</p>
+                                            <p className="font-mono font-bold text-rose-500 text-sm">{formatMoney(func.totais.descontos)}</p>
                                         </div>
-                                        <div className="px-3 border-r border-slate-100 last:border-0 text-right">
-                                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Líquido</p>
-                                            <p className="font-mono font-bold text-purple-700 text-xs">{formatMoney(func.totais.liquido)}</p>
-                                        </div>
-                                        <div className="px-3 border-r border-slate-100 last:border-0 text-right bg-slate-50/50 rounded-lg py-1">
-                                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Base IRRF</p>
-                                            <p className="font-mono font-bold text-slate-600 text-xs">{formatMoney(func.totais.base_irrf_oficial || 0)}</p>
+                                        <div className="px-4 text-right min-w-[90px]">
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Líquido</p>
+                                            <p className="font-mono font-bold text-purple-700 text-sm">{formatMoney(func.totais.liquido)}</p>
                                         </div>
                                     </div>
                                 )}

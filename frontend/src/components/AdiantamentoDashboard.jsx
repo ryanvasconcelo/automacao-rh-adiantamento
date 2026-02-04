@@ -106,7 +106,7 @@ const AdiantamentoDashboard = () => {
                     <h2 className="text-3xl font-extrabold text-slate-900">Auditoria de Adiantamento</h2>
                     <p className="text-slate-500 mt-2">Processamento em lote de múltiplas empresas.</p>
                 </div>
-                <Card className="shadow-xl shadow-blue-900/5 border-blue-100 p-8">
+                <Card className="shadow-xl shadow-blue-900/5 border-blue-100 p-8" overflowHidden={false}>
                     <div className="space-y-8">
                         <CustomSelect label="Dia de Pagamento" value={selectedDay} onChange={setSelectedDay} options={[{ value: '15', label: 'Dia 15' }, { value: '20', label: 'Dia 20' }]} />
                         <MonthYearPicker month={selectedMonth} year={selectedYear} onMonthChange={setSelectedMonth} onYearChange={setSelectedYear} />
