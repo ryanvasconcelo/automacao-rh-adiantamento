@@ -203,7 +203,9 @@ def fetch_payroll_data(empresa_codigo: str, folha_seq: int) -> List[Dict]:
         raise
 
 
-def get_ferias_details(empresa_codigo: str, ano: int, mes: int) -> Dict[str, List[Dict]]:
+def get_ferias_details(
+    empresa_codigo: str, ano: int, mes: int
+) -> Dict[str, List[Dict]]:
     """
     Busca eventos de Férias via tabela FER.
     Critério: Férias gozadas no mês de referência (Inicio ou Fim no mês).
@@ -263,9 +265,10 @@ def get_ferias_details(empresa_codigo: str, ano: int, mes: int) -> Dict[str, Lis
           
         ORDER BY FER.EFO_EPG_CODIGO, EVE.CODIGO
     """
-    
+
     import calendar
     from datetime import date
+
     last_day_val = calendar.monthrange(ano, mes)[1]
     dt_ini_mes = date(ano, mes, 1)
     dt_fim_mes = date(ano, mes, last_day_val)
@@ -274,37 +277,39 @@ def get_ferias_details(empresa_codigo: str, ano: int, mes: int) -> Dict[str, Lis
         data_map = {}
         with get_connection() as conn:
             cursor = conn.cursor()
-            print(f"[DEBUG SQL] Buscando Férias (v3 - InfProvDesc): Emp={empresa_codigo} Overlap [{dt_ini_mes} a {dt_fim_mes}]")
+            print(
+                f"[DEBUG SQL] Buscando Férias (v3 - InfProvDesc): Emp={empresa_codigo} Overlap [{dt_ini_mes} a {dt_fim_mes}]"
+            )
             cursor.execute(sql, (str(empresa_codigo), dt_fim_mes, dt_ini_mes))
             rows = cursor.fetchall()
             print(f"[DEBUG SQL] Rows encontradas: {len(rows)}")
-            
+
             for row in rows:
                 d = dict_factory(cursor, row)
                 mat = str(d["Matricula"]).strip()
-                
+
                 evt = {
                     "codigo": str(d["EveCodigo"]),
                     "descricao": str(d["Descricao"]).strip() + " (Férias)",
                     "tipo": d["Tipo"],
                     "valor": float(d["Valor"]),
                     "referencia": float(d["Referencia"]) if d["Referencia"] else 0.0,
-                    "tipo_inss": d["TipoEventoINSS"], # Novo Campo
+                    "tipo_inss": d["TipoEventoINSS"],  # Novo Campo
                     "incidencias": {
                         "inss": int(d["IncideINSS"] or 0) > 0,
                         "irrf": int(d["IncideIRRF"] or 0) > 0,
-                        "fgts": int(d["IncideFGTS"] or 0) > 0
+                        "fgts": int(d["IncideFGTS"] or 0) > 0,
                     },
                     "origem": "FERIAS",
                     "data_ferias": f"{d['DtGozoInicial']} a {d['DtGozoFinal']}",
-                    "dt_inicio": d['DtGozoInicial'],
-                    "dt_fim": d['DtGozoFinal']
+                    "dt_inicio": d["DtGozoInicial"],
+                    "dt_fim": d["DtGozoFinal"],
                 }
-                
+
                 if mat not in data_map:
                     data_map[mat] = []
                 data_map[mat].append(evt)
-                
+
         return data_map
     except Exception as e:
         logger.error(f"Erro get_ferias_details: {e}")

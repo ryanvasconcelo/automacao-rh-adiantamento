@@ -9,7 +9,9 @@ const VALID_USERS = {
     'admin': 'admin!@#',
     'isabela.caetano': '$Audit@88IC',
     'joel.goncalves': 'JGAudit#Rhol8!9',
-    'gisele.felix': 'GF@Fin$77%$'
+    'gisele.felix': 'GF@Fin$77%$',
+    'tamara.souza': 'TSAudit@G$77%$',
+    'suzana.carlos': 'SCAudit@D#23$!'
 };
 
 export default function Login({ onLogin }) {

@@ -1,0 +1,77 @@
+graph TD
+    classDef startEnd fill:#1A237E,stroke:#E8EAF6,stroke-width:3px,color:#fff,font-weight:bold;
+    classDef concluded fill:#1B5E20,stroke:#A5D6A7,stroke-width:2px,color:#fff;
+    classDef inProgress fill:#F57F17,stroke:#FFF59D,stroke-width:2px,color:#fff;
+    classDef pending fill:#424242,stroke:#BDBDBD,stroke-width:2px,color:#fff,stroke-dasharray: 5 5;
+    classDef highlight fill:#B71C1C,stroke:#FFCDD2,stroke-width:2px,color:#fff;
+
+    Start([🚀 INÍCIO DO PROJETO<br/>Módulo de Auditoria FOPAG]) :::startEnd
+
+    subgraph Fase 1: Fundação & Arquitetura (Concluído)
+        A1[Estruturação da Arq. Híbrida<br/>`API` + `Auditor` + `Engine`] :::concluded
+        A2[Conexão c/ Banco de Dados<br/>Transição de Prisma p/ SQLAlchemy Sync] :::concluded
+        A3[Mapeamento Inicial<br/>Conexão ERP Fortes SQL Server] :::concluded
+    end
+
+    subgraph Fase 2: Motor de Cálculo Core V1 (Concluído)
+        B1[Cálculos Progressivos Básicos<br/>INSS, IRRF Híbrido, FGTS, Pensão] :::concluded
+        B2[Queries Fundamentais<br/>Tabelas FER, FOL, EFO, PAF, EFP] :::concluded
+        B3[Eventos Parametrizados<br/>Uso de Variáveis Dinâmicas do ERP] :::concluded
+    end
+    
+    subgraph Fase 3: Refinamento de Precisão (Atuação Atual)
+        C1[Refatoração Matemática<br/>Converter floats para Decimals estritos] :::inProgress
+        C2[Correção Limite IRRF<br/>Remover 'Best Fit', aplicar Regra Determinística] :::inProgress
+        C3[Tratamento de Horas<br/>Conversão Centesimal vs Sexagesimal Noturno] :::inProgress
+    end
+
+    Start --> A1
+    A1 --> A2 --> A3
+    A3 --> B1
+    B1 --> B2 --> B3
+    B3 --> C1
+
+    %% Divisão dos Subfluxos
+    C1 --> |Bifurcação dos Processos| Split{Decisão de Folha}
+    
+    subgraph Subfluxo 1: Adiantamento Salarial
+        AD1[Cálculo Base Adiantamento<br/>Geralmente 40% do Salário Base] :::pending
+        AD2[Descontos Permitidos no Adiantamento<br/>Ex: Pensão Alimentícia, Faltas Específicas] :::pending
+        AD3[Auditoria de Valores de Adiantamento<br/>Comparação Valor Calculado vs ERP] :::pending
+        AD4[Geração Relatório de Desvios - Adiantamento] :::pending
+    end
+
+    Split --> |Processamento Dia 15-20| AD1
+    AD1 --> AD2 --> AD3 --> AD4
+
+    subgraph Subfluxo 2: Folha de Pagamento (Mensal)
+        FP1[Integração Folha vs Férias<br/>Aglutinar Rubricas, Abater Provisões] :::pending
+        FP2[Variáveis do Sistema Conecta<br/>Atrelar Horas Extras/Atrasos/Faltas] :::pending
+        FP3[Motor de Parâmetros por Empresa<br/>Adicional 20% vs Horas, Descontos de VT] :::pending
+        FP4[Cálculo Final de Tributos e Proventos<br/>INSS, IRRF, FGTS, Líquido a Receber] :::pending
+        FP5[Auditoria Completa da Folha Mensal<br/>Validação Cêntimo a Cêntimo vs ERP] :::pending
+        FP6[Geração Relatório de Desvios - Mensal] :::pending
+    end
+
+    Split --> |Processamento Final do Mês| FP1
+    FP1 --> FP2 --> FP3 --> FP4 --> FP5 --> FP6
+
+    subgraph Fase 6: Carenagem e Segurança (Finalização)
+        F1[Frontend de Auditoria<br/>Dashboard Dinâmico para RH] :::pending
+        F2[Barreira de Segurança Simples<br/>Autenticação Básica resetada a cada 12h] :::pending
+    end
+
+    AD4 --> F1
+    FP6 --> F1
+    F1 --> F2
+
+    subgraph Fase 7: Homologação e Deploy
+        G1[Bateria de Testes Finais<br/>Auditoria cruzada Sistema vs ERP] :::pending
+        G2[Deploy de Produção<br/>Escalonamento do Robô] :::pending
+    end
+
+    F2 --> G1
+    G1 --> G2
+    G2 --> End
+
+    End([🏁 FIM DO PROJETO<br/>Auditoria Total Automatizada (Adiantamento + Mensal)]) :::startEnd

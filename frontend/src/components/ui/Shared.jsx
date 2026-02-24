@@ -29,7 +29,9 @@ export const CollapsibleSidebar = ({ activeModule, onChangeModule, isOpen, toggl
         'admin': { name: 'admin', role: 'eu' },
         'isabela.caetano': { name: 'Isabela Caetano', role: 'Auditora' },
         'joel.goncalves': { name: 'Joel Gonçalves', role: 'Auditor' },
-        'gisele.felix': { name: 'Gisele Félix', role: 'Gestora' }
+        'gisele.felix': { name: 'Gisele Félix', role: 'Gestora' },
+        'tamara.souza': { name: 'Tamara Souza', role: 'Auditora' },
+        'suzana.carlos': { name: 'Suzana Carlos', role: 'Auditora' }
     };
 
     const userInfo = USER_ROLES[user] || { name: user, role: 'Visitante' };
