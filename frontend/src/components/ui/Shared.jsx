@@ -1,7 +1,7 @@
 // frontend/src/components/ui/Shared.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, ChevronDown, Calendar, Check, ChevronRight, ChevronLeft, Search, LayoutDashboard, CalendarClock, Calculator, X, Hash } from 'lucide-react';
+import { Loader2, ChevronDown, Calendar, Check, ChevronRight, ChevronLeft, Search, LayoutDashboard, CalendarClock, Calculator, X, Hash, FileSpreadsheet } from 'lucide-react';
 import logoProjecont from '../../assets/logoProjecont.jpeg';
 
 // --- WRAPPER DE ANIMAÇÃO ---
@@ -23,6 +23,7 @@ export const CollapsibleSidebar = ({ activeModule, onChangeModule, isOpen, toggl
         { id: 'HOME', label: 'Início', icon: LayoutDashboard },
         { id: 'ADIANTAMENTO', label: 'Adiantamento', icon: CalendarClock },
         { id: 'FOPAG', label: 'Folha Mensal', icon: Calculator },
+        { id: 'BRAGA_COMISSOES', label: 'Importações Manuais', icon: FileSpreadsheet },
     ];
 
     const USER_ROLES = {

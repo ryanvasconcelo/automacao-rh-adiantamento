@@ -11,6 +11,7 @@ load_dotenv()
 # Importa os roteadores dos módulos
 from src.fopag.router import router as fopag_router
 from src.adiantamento.router import router as adiantamento_router
+from src.importacoes_manuais.braga_comissoes.router import router as braga_router
 
 # Inicializa a App
 app = FastAPI(
@@ -34,6 +35,9 @@ app.include_router(fopag_router)
 
 # 2. Rotas do Adiantamento (Legado Migrado)
 app.include_router(adiantamento_router)
+
+# 3. Importacoes Manuais
+app.include_router(braga_router)
 
 
 @app.get("/")

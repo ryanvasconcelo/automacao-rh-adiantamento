@@ -4,6 +4,7 @@ import { MainLayout } from './components/layout/MainLayout';
 import FopagAuditDashboard from './components/FopagAuditDashboard';
 import AdiantamentoDashboard from './components/AdiantamentoDashboard';
 import Login from './components/Login';
+import BragaImporter from './components/BragaImporter';
 import { Activity, CheckCircle2, TrendingUp } from 'lucide-react';
 import { StatCard } from './components/ui/StatCard';
 
@@ -45,6 +46,8 @@ function App() {
         return <FopagAuditDashboard />;
       case 'ADIANTAMENTO':
         return <AdiantamentoDashboard onBackToMenu={() => setCurrentModule('HOME')} />;
+      case 'BRAGA_COMISSOES':
+        return <BragaImporter />;
       default:
         return <HomeWelcome onNavigate={setCurrentModule} />;
     }
@@ -83,7 +86,10 @@ const HomeWelcome = ({ onNavigate }) => (
       <div onClick={() => onNavigate('FOPAG')} className="cursor-pointer">
         <StatCard title="Módulo Folha Mensal" value="Auditoria FOPAG" icon={Calculator} color="purple" subtext="Folha mensal" />
       </div>
-      <StatCard title="Status do Sistema" value="Operacional" icon={Activity} color="green" subtext="v1.4.0 Stable" />
+      <div onClick={() => onNavigate('BRAGA_COMISSOES')} className="cursor-pointer">
+        <StatCard title="Módulo Importações" value="Comissões Braga" icon={FileSpreadsheet} color="green" subtext="Gerador de CSV" />
+      </div>
+      <StatCard title="Status do Sistema" value="Operacional" icon={Activity} color="slate" subtext="v1.4.0 Stable" />
     </div>
 
     {/* Área de Novidades ou Avisos (Opcional) */}
@@ -117,6 +123,6 @@ const HomeWelcome = ({ onNavigate }) => (
 );
 
 // Ícones para o componente Home (importados aqui para brevidade)
-import { Calculator, CalendarClock } from 'lucide-react';
+import { Calculator, CalendarClock, FileSpreadsheet } from 'lucide-react';
 
 export default App;
